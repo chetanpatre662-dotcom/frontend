@@ -1,0 +1,84 @@
+/**
+ * repositories/userRepository.js
+ * -----------------------------------------------------------------------------
+ * Data-access layer for the `users` table. This is the ONLY place that holds
+ * SQL for users — services and routes never write SQL directly.
+ *
+ * All queries are parameterized (no string interpolation of user input) to
+ * prevent SQL injection. Firebase UID (`firebase_uid`) is the identity key.
+ *
+ * Schema reference (from migrations/001_initial_schema.sql):
+ *   users(id, firebase_uid UNIQUE NOT NULL, email, display_name,
+ *         role CHECK IN ('student','faculty','admin') DEFAULT 'student',
+ *         created_at, updated_at)
+ * -----------------------------------------------------------------------------
+ */
+'use strict';
+
+const { query } = require('../config/database');
+
+// Columns returned to callers — keep this stable so services/routes have a
+// predictable shape and we never accidentally leak added internal columns.
+const RETURNING = 'id, firebase_uid, email, display_name, role, created_at, updated_at';
+
+/**
+ * Find a user by their Firebase UID.
+ * @param {string} firebaseUid
+ * @returns {Promise<object|null>} the user row, or null if not found
+ */
+async function findByFirebaseUid(firebaseUid) {
+  const { rows } = await query(
+    `SELECT ${RETURNING} FROM users WHERE firebase_uid = $1`,
+    [firebaseUid]
+  );
+  return rows[0] || null;
+}
+
+/**
+ * Insert a new user row.
+ * @param {object} params
+ * @param {string} params.firebaseUid  - required identity key
+ * @param {string|null} [params.email]
+ * @param {string|null} [params.displayName]
+ * @param {string} [params.role='student'] - decided server-side, never from client
+ * @returns {Promise<object>} the inserted user row
+ */
+async function insertUser({ firebaseUid, email = null, displayName = null, role = 'student' }) {
+  const { rows } = await query(
+    `INSERT INTO users (firebase_uid, email, display_name, role)
+     VALUES ($1, $2, $3, $4)
+     RETURNING ${RETURNING}`,
+    [firebaseUid, email, displayName, role]
+  );
+  return rows[0];
+}
+
+/**
+ * Upsert a user by Firebase UID.
+ *
+ * On first insert, the provided `role` (default 'student') is used. On conflict
+ * (user already exists) the row's ROLE IS DELIBERATELY PRESERVED — role is never
+ * changed here. Only email/display_name are refreshed, and only when a non-null
+ * value is supplied (COALESCE keeps existing data if the new value is null).
+ *
+ * @param {object} params
+ * @param {string} params.firebaseUid
+ * @param {string|null} [params.email]
+ * @param {string|null} [params.displayName]
+ * @param {string} [params.role='student'] - used ONLY for the initial insert
+ * @returns {Promise<object>} the resulting user row
+ */
+async function upsertByFirebaseUid({ firebaseUid, email = null, displayName = null, role = 'student' }) {
+  const { rows } = await query(
+    `INSERT INTO users (firebase_uid, email, display_name, role)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (firebase_uid) DO UPDATE
+       SET email        = COALESCE(EXCLUDED.email, users.email),
+           display_name = COALESCE(EXCLUDED.display_name, users.display_name)
+     RETURNING ${RETURNING}`,
+    [firebaseUid, email, displayName, role]
+  );
+  return rows[0];
+}
+
+module.exports = { findByFirebaseUid, insertUser, upsertByFirebaseUid };
