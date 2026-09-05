@@ -32,10 +32,10 @@ function toList(value) {
 }
 
 /**
- * Normalize a phone number to a comparable E.164-ish form: strip spaces,
- * hyphens, parentheses; keep a single leading '+'. Returns '' when empty.
- * Used only for server-side comparison of a verified phone against config —
- * never sent to the frontend.
+ * Normalize a phone number to E.164 form: strip spaces, hyphens, parentheses;
+ * keep a single leading '+'. Returns '' when empty.
+ * Auto-prepends +91 for 10-digit Indian mobile numbers without a country code.
+ * Used server-side for storage and comparison — never sent to the frontend.
  */
 function normalizePhone(value) {
   if (!value) return '';
@@ -43,7 +43,14 @@ function normalizePhone(value) {
   if (!raw) return '';
   const hasPlus = raw.startsWith('+');
   const digits = raw.replace(/[^\d]/g, '');
-  return (hasPlus ? '+' : '') + digits;
+  if (!digits) return '';
+  if (hasPlus) return '+' + digits;
+  // 10-digit number → assume Indian mobile, prepend +91
+  if (digits.length === 10) return '+91' + digits;
+  // 12-digit number starting with 91 → add '+'
+  if (digits.length === 12 && digits.startsWith('91')) return '+' + digits;
+  // Anything else with explicit digits — keep as-is with no country code prefix
+  return digits;
 }
 
 const NODE_ENV = process.env.NODE_ENV || 'development';

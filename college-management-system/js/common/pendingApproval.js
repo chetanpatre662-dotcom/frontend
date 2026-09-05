@@ -27,6 +27,23 @@ import { makeRecaptcha, sendPhoneOtp, confirmPhoneOtp } from '../firebase/auth.j
 import { syncProfile } from '../services/authService.js';
 
 /**
+ * Ensure a phone string is in E.164 format before passing to Firebase.
+ * Firebase signInWithPhoneNumber requires +[countrycode][number].
+ * Auto-prepends +91 for bare 10-digit Indian mobile numbers.
+ */
+function toE164(phone) {
+  if (!phone) return '';
+  const raw = String(phone).trim();
+  const hasPlus = raw.startsWith('+');
+  const digits = raw.replace(/[^\d]/g, '');
+  if (!digits) return '';
+  if (hasPlus) return '+' + digits;
+  if (digits.length === 10) return '+91' + digits;           // bare Indian number
+  if (digits.length === 12 && digits.startsWith('91')) return '+' + digits;
+  return '+' + digits; // best effort
+}
+
+/**
  * Render the pending-approval screen into `container`.
  * @param {HTMLElement} container
  * @param {object} opts
@@ -220,7 +237,13 @@ async function sendOtpStep(container, flowEl, role, dashboardUrl) {
       sendBtn.innerHTML = originalBtnHtml;
       return;
     }
-    const e164Phone = phoneRes.phone;
+    const e164Phone = toE164(phoneRes.phone);
+    if (!e164Phone) {
+      toastError('Invalid phone number format from server. Please contact an administrator.');
+      sendBtn.disabled = false;
+      sendBtn.innerHTML = originalBtnHtml;
+      return;
+    }
 
     recaptchaVerifier = await makeRecaptcha('recaptcha-container');
     confirmation = await sendPhoneOtp(e164Phone, recaptchaVerifier);

@@ -107,6 +107,7 @@ export function watchAuthState(callback) {
  */
 let _otpApp = null;
 let _otpAuth = null;
+let _recaptchaVerifier = null; // track active verifier for cleanup
 
 async function getOtpAuth() {
   if (_otpAuth) return _otpAuth;
@@ -128,9 +129,15 @@ async function getOtpAuth() {
  */
 export async function makeRecaptcha(containerId) {
   const otpAuth = await getOtpAuth();
-  const verifier = new RecaptchaVerifier(otpAuth, containerId, { size: 'invisible' });
-  await verifier.render();
-  return verifier;
+  // Clear any previous verifier before creating a new one — Firebase throws
+  // if a verifier is re-created on the same element without clearing first.
+  if (_recaptchaVerifier) {
+    try { _recaptchaVerifier.clear(); } catch { /* ignore if already cleared */ }
+    _recaptchaVerifier = null;
+  }
+  _recaptchaVerifier = new RecaptchaVerifier(otpAuth, containerId, { size: 'invisible' });
+  await _recaptchaVerifier.render();
+  return _recaptchaVerifier;
 }
 
 /**
@@ -159,6 +166,11 @@ export async function sendPhoneOtp(e164Phone, verifier) {
 export async function confirmPhoneOtp(confirmation, code) {
   const cred = await confirmation.confirm(code);
   const token = await cred.user.getIdToken();
+  // Clear the verifier so a fresh one can be created if needed.
+  if (_recaptchaVerifier) {
+    try { _recaptchaVerifier.clear(); } catch { /* ignore */ }
+    _recaptchaVerifier = null;
+  }
   try { await getOtpAuth().then((a) => a.signOut()); } catch { /* ignore */ }
   return token;
 }
