@@ -26,7 +26,7 @@ export const APP = {
  * than the backend, so API_BASE_URL must be absolute for cross-origin calls.
  */
 export const ENV = {
-  API_BASE_URL: 'http://localhost:5000/api',
+  API_BASE_URL: 'http://162.245.191.109:5000/api',
   AUTH_USE_BACKEND: true,
   WS_URL: '', // empty -> realtimeService derives ws(s)://host/ws from API_BASE_URL
 };

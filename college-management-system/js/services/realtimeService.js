@@ -20,7 +20,7 @@ function wsUrl() {
     const proto = api.protocol === 'https:' ? 'wss:' : 'ws:';
     return `${proto}//${api.host}/ws`;
   } catch {
-    return 'ws://localhost:5000/ws';
+    return 'ws://162.245.191.109:5000/ws';
   }
 }
 
