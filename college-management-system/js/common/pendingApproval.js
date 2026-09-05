@@ -305,7 +305,7 @@ async function verifyOtpStep(otpStep, confirmation, isBootstrap, approverId, das
 async function fetchApproverPhone(isBootstrap, approverId) {
   try {
     const { getIdToken } = await import('../firebase/auth.js');
-    const { authedRequest } = await import('./apiClient.js');
+    const { authedRequest } = await import('../services/apiClient.js');
     const { ENV } = await import('../config.js');
     if (!ENV.AUTH_USE_BACKEND) return { ok: false, error: 'Backend disabled.' };
     const token = await getIdToken();

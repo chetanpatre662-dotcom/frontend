@@ -117,6 +117,15 @@ async function setVerifiedPhone(id, phone) {
   return rows[0] || null;
 }
 
+/** Save an UNVERIFIED phone number provided at registration (not OTP-verified yet). */
+async function saveUnverifiedPhone(id, phone) {
+  const { rows } = await query(
+    `UPDATE users SET phone = $2, phone_verified = FALSE WHERE id = $1 RETURNING ${RETURNING}`,
+    [id, phone]
+  );
+  return rows[0] || null;
+}
+
 /** Count users matching a role + status (e.g. approved admins). */
 async function countByRoleStatus(role, status) {
   const { rows } = await query(
@@ -150,6 +159,7 @@ module.exports = {
   updateStatus,
   updateRoleAndStatus,
   setVerifiedPhone,
+  saveUnverifiedPhone,
   countByRoleStatus,
   listApprovedAdminsWithPhone,
 };

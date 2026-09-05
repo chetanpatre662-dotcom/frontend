@@ -61,11 +61,12 @@ export function verifyOtp({ phoneIdToken, approverId, bootstrap }) {
 
 /**
  * POST /api/approval/admin/apply — declare admin intent on a fresh account.
- * Sets role=admin, status=pending on the caller's account. Only allowed for a
- * new bare-student account with no existing profile.
+ * @param {string} [phone] E.164 or local mobile number (stored unverified; overwritten at OTP time)
  */
-export function applyForAdmin() {
-  return call('/approval/admin/apply', { method: 'POST', body: {} });
+export function applyForAdmin(phone) {
+  const body = {};
+  if (phone) body.phone = phone;
+  return call('/approval/admin/apply', { method: 'POST', body });
 }
 
 /**

@@ -259,8 +259,13 @@ async function registerMyPhone(dbUser, phoneIdToken) {
  * (bootstrap OTP or an existing approved admin's OTP / admin panel).
  * @param {object} dbUser
  */
-async function applyForAdmin(dbUser) {
+async function applyForAdmin(dbUser, input = {}) {
   if (dbUser.role === 'admin') {
+    // Idempotent: already admin. Still update phone if newly supplied and not yet set.
+    if (input.phone && !dbUser.phone) {
+      const cleaned = normalizePhone(input.phone);
+      if (cleaned) await userRepository.saveUnverifiedPhone(dbUser.id, cleaned);
+    }
     return { changed: false, role: 'admin', status: dbUser.status };
   }
   if (dbUser.role !== 'student') {
@@ -276,6 +281,12 @@ async function applyForAdmin(dbUser) {
     throw new ApiError(409, 'This account already has a student or faculty profile.', { code: 'PROFILE_EXISTS' });
   }
   const updated = await userRepository.updateRoleAndStatus(dbUser.id, 'admin', 'pending');
+  // Save the unverified mobile number if provided (will be overwritten by phone_verified=true
+  // once the admin registers their phone via OTP at approval time).
+  if (input.phone) {
+    const cleaned = normalizePhone(input.phone);
+    if (cleaned) await userRepository.saveUnverifiedPhone(dbUser.id, cleaned);
+  }
   return { changed: true, role: 'admin', status: 'pending', user: safeUser(updated) };
 }
 

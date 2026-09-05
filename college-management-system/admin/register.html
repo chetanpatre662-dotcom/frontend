@@ -64,6 +64,15 @@
             <div class="field-error"></div>
           </div>
           <div class="form-group">
+            <label class="form-label" for="mobileNumber">Mobile number <span class="req">*</span></label>
+            <input class="input" id="mobileNumber" name="mobileNumber" type="tel" inputmode="tel"
+              autocomplete="tel" placeholder="e.g. 9876543210 or +919876543210" />
+            <div class="text-muted" style="font-size:var(--fs-xs);margin-top:4px">
+              This number will be used for OTP-based approval. Enter your number or the approving admin's number.
+            </div>
+            <div class="field-error"></div>
+          </div>
+          <div class="form-group">
             <label class="form-label" for="password">Password <span class="req">*</span></label>
             <div class="input-group">
               <input class="input" id="password" name="password" type="password" autocomplete="new-password" placeholder="At least 6 characters" />
@@ -135,14 +144,12 @@
     });
 
     async function finishPending() {
-      // After account creation + /auth/sync, call applyForAdmin to set role=admin, status=pending.
-      const r = await applyForAdmin();
+      const mobile = form.elements['mobileNumber']?.value?.trim() || '';
+      const r = await applyForAdmin(mobile || undefined);
       if (!r.ok && r.status !== 409) {
-        // 409 = already admin (idempotent), that's fine.
         toastError(r.error || 'Could not create admin account. Please try again.');
         return false;
       }
-      // Show pending approval screen with OTP option.
       const card = document.querySelector('.auth-card');
       renderPendingApproval(card, {
         role: 'admin',
@@ -167,6 +174,7 @@
       const ok = validateForm(form, {
         name: [rules.required],
         email: [rules.required, rules.email],
+        mobileNumber: [rules.required, rules.mobile],
         password: [rules.required, rules.minLen(6)],
         confirm: [rules.required],
       });

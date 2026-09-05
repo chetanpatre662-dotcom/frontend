@@ -83,7 +83,7 @@ router.post('/approval/otp/verify', requireAuth, async (req, res, next) => {
 router.post('/approval/admin/apply', requireAuth, async (req, res, next) => {
   try {
     const user = await currentUser(req);
-    const result = await approvalService.applyForAdmin(user);
+    const result = await approvalService.applyForAdmin(user, req.body || {});
     res.status(200).json({ success: true, message: 'Admin application submitted (pending approval).', ...result });
   } catch (err) { next(err); }
 });
