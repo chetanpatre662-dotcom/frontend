@@ -36,14 +36,38 @@
   z-index: 1;
 }
 .auth-hero .logo-badge {
-  width: 44px; height: 44px;
+  width: 48px; height: 48px;
   border-radius: 12px;
-  background: rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.96);
   display: grid; place-items: center;
   border: 1px solid rgba(255,255,255,0.18);
+  overflow: hidden;
+  padding: 4px;
 }
 .auth-hero .logo-badge svg { width: 24px; height: 24px; color: #fff; }
-.auth-hero .brand-name { font-size: var(--fs-lg); font-weight: 700; color: #fff; }
+/* Real PNG college logo: contain within the badge, crisp + centered. */
+.auth-hero .logo-badge img {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.auth-hero .brand-name {
+  font-size: var(--fs-lg); font-weight: 700; color: #fff;
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+}
+/* SCEP sub-brand: refined uppercase, tracked-out, subtle translucent badge. */
+.auth-hero .brand-subbrand {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.92);
+  background: rgba(255,255,255,0.16);
+  border: 1px solid rgba(255,255,255,0.22);
+  padding: 2px 7px;
+  border-radius: 999px;
+  line-height: 1.5;
+}
 .auth-hero .brand-sub { font-size: var(--fs-xs); color: rgba(255,255,255,0.7); }
 
 .auth-hero .hero-content { position: relative; z-index: 1; max-width: 440px; }

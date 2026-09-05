@@ -3,7 +3,8 @@
    ========================================================================= */
 
 /* Admin accent = violet. Sidebar stays light; only accents differ. */
-.role-admin .sidebar .sb-logo { background: #7c3aed; }
+/* Logo badge now holds the real PNG college logo — keep it transparent. */
+.role-admin .sidebar .sb-logo { background: transparent; }
 .role-admin .sidebar .sb-link.active { background: #ede9fe; color: #6d28d9; }
 .role-admin .sidebar .sb-link.active svg { color: #7c3aed; }
 .role-admin .sidebar .sb-link.sb-ai,

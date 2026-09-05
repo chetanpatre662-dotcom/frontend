@@ -28,6 +28,21 @@ async function findByUserId(userId) {
   return rows[0] || null;
 }
 
+/**
+ * Find students matching an announcement's targeting (NULL target = broader).
+ * Returns minimal rows ({ user_id }) for notification fan-out.
+ */
+async function findMatching({ program, branch, semester }) {
+  const { rows } = await query(
+    `SELECT user_id FROM students
+      WHERE ($1::text     IS NULL OR program  = $1)
+        AND ($2::text     IS NULL OR branch   = $2)
+        AND ($3::smallint IS NULL OR semester = $3)`,
+    [program || null, branch || null, semester != null ? Number(semester) : null]
+  );
+  return rows;
+}
+
 /** Check whether a roll number is already taken by a different user. */
 async function rollNumberTakenByOther(rollNumber, userId) {
   const { rows } = await query(
@@ -67,4 +82,4 @@ async function upsertByUserId({ userId, rollNumber, fullName, mobileNumber, prog
   return rows[0];
 }
 
-module.exports = { findByUserId, rollNumberTakenByOther, upsertByUserId };
+module.exports = { findByUserId, findMatching, rollNumberTakenByOther, upsertByUserId };

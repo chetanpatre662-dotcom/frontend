@@ -3,7 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin Registration · College Management System</title>
+  <title>Admin Registration Unavailable · College Management System</title>
+  <!-- Public admin registration is intentionally disabled. Admin accounts are
+       provisioned server-side by an authorized operator, never self-created.
+       This page redirects to the admin login and shows a clear notice. -->
+  <meta http-equiv="refresh" content="4; url=login.html" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../css/global.css" />
@@ -28,8 +32,8 @@
         </div>
       </div>
       <div class="hero-content">
-        <h1>Create your admin account.</h1>
-        <p>Register to manage faculty, students, courses and configuration.</p>
+        <h1>Administrator access is managed centrally.</h1>
+        <p>Admin accounts are provisioned by the institute's system administrators. There is no public admin sign-up.</p>
         <ul class="hero-points" id="heroPoints"></ul>
       </div>
       <div class="hero-foot" id="heroFoot"></div>
@@ -38,65 +42,37 @@
     <section class="auth-form-panel">
       <div class="auth-card">
         <span class="role-pill" id="rolePill"></span>
-        <h2>Create account</h2>
-        <p class="auth-desc">Administrator accounts will require backend approval later.</p>
-
-        <form id="registerForm" novalidate>
-          <div class="form-group">
-            <label class="form-label" for="name">Full name <span class="req">*</span></label>
-            <input class="input" id="name" name="name" type="text" autocomplete="name" placeholder="e.g. System Administrator" />
-            <div class="field-error"></div>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="email">Email <span class="req">*</span></label>
-            <input class="input" id="email" name="email" type="email" autocomplete="email" placeholder="you@example.com" />
-            <div class="field-error"></div>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="password">Password <span class="req">*</span></label>
-            <div class="input-group">
-              <input class="input" id="password" name="password" type="password" autocomplete="new-password" placeholder="At least 6 characters" />
-              <button type="button" class="toggle-visibility" id="togglePw" aria-label="Show password"></button>
-            </div>
-            <div class="field-error"></div>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="confirm">Confirm password <span class="req">*</span></label>
-            <div class="input-group">
-              <input class="input" id="confirm" name="confirm" type="password" autocomplete="new-password" placeholder="Re-enter password" />
-              <button type="button" class="toggle-visibility" id="toggleConfirm" aria-label="Show password"></button>
-            </div>
-            <div class="field-error"></div>
-          </div>
-
-          <button type="submit" class="btn btn-primary btn-block" id="submitBtn">Create account</button>
-        </form>
-
-        <div class="auth-divider">or</div>
-        <button type="button" class="btn-google" id="googleBtn"></button>
-
-        <p class="auth-footer-link">Already have an account? <a href="login.html">Sign in</a></p>
+        <h2>Registration not available</h2>
+        <p class="auth-desc">
+          Admin registration is not available. Administrator accounts are created
+          and approved by an authorized system administrator, not through public
+          sign-up.
+        </p>
+        <p class="text-muted" style="margin:12px 0 20px">
+          If you already have an administrator account, please sign in. You'll be
+          redirected to the sign-in page shortly.
+        </p>
+        <a class="btn btn-primary btn-block" href="login.html">Go to admin sign in</a>
+        <p class="auth-footer-link"><a href="../index.html">Back to role selection</a></p>
       </div>
     </section>
   </div>
 
   <script type="module">
-    import { APP, ROLES, ROUTES } from '../js/config.js';
-    import { icon, googleIcon } from '../js/common/icons.js';
-    import { initRegisterPage } from '../js/common/registerPage.js';
+    import { APP } from '../js/config.js';
+    import { icon } from '../js/common/icons.js';
 
     document.getElementById('logoBadge').innerHTML = icon('logo');
     document.getElementById('collegeName').textContent = APP.COLLEGE_SHORT;
     document.getElementById('rolePill').innerHTML = icon('shield') + ' Admin';
     document.getElementById('heroFoot').textContent = `${APP.COLLEGE_NAME} · ${APP.NAME}`;
-    document.getElementById('googleBtn').innerHTML = googleIcon() + ' Continue with Google';
     document.getElementById('heroPoints').innerHTML = [
-      'Manage faculty & students',
-      'Configure courses & branches',
-      'Institute-wide settings',
+      'Accounts are provisioned server-side',
+      'No public admin sign-up',
+      'Role is controlled by the database',
     ].map((t) => `<li>${icon('check')}<span>${t}</span></li>`).join('');
-
-    initRegisterPage({ role: ROLES.ADMIN, dashboardUrl: ROUTES.ADMIN.DASHBOARD });
+    // No registration controller is loaded here — there is no path to create or
+    // elevate an admin from the client.
   </script>
 </body>
 </html>

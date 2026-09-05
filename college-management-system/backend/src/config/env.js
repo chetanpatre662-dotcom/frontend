@@ -73,6 +73,8 @@ const env = {
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL || '',
     // Env files store the key with literal "\n"; convert to real newlines.
     privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+    // Firebase Cloud Storage bucket (e.g. college-94cd7.firebasestorage.app).
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || '',
   },
 };
 

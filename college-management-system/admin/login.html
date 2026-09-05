@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin Login · College Management System</title>
+  <title>Admin Login · Askbook SCEP</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="../css/global.css" />
@@ -23,7 +23,10 @@
       <div class="brand-row">
         <div class="logo-badge" id="logoBadge"></div>
         <div>
-          <div class="brand-name" id="collegeName">College</div>
+          <div class="brand-name">
+            <span id="collegeName">Askbook</span>
+            <span class="brand-subbrand" id="collegeSub">SCEP</span>
+          </div>
           <div class="brand-sub">Administration</div>
         </div>
       </div>
@@ -76,8 +79,10 @@
     import { icon, googleIcon } from '../js/common/icons.js';
     import { initLoginPage } from '../js/common/loginPage.js';
 
-    document.getElementById('logoBadge').innerHTML = icon('logo');
+    document.getElementById('logoBadge').innerHTML =
+      `<img src="../${APP.COLLEGE_LOGO.replace(/^\//, '')}" alt="${APP.COLLEGE_NAME} logo" />`;
     document.getElementById('collegeName').textContent = APP.COLLEGE_SHORT;
+    document.getElementById('collegeSub').textContent = APP.COLLEGE_SUB;
     document.getElementById('rolePill').innerHTML = icon('shield') + ' Admin';
     document.getElementById('heroFoot').textContent = `${APP.COLLEGE_NAME} · ${APP.NAME}`;
     document.getElementById('googleBtn').innerHTML = googleIcon() + ' Continue with Google';

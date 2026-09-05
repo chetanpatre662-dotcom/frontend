@@ -42,8 +42,18 @@ async function init({ main, user }) {
 }
 
 async function load() {
-  all = await getEvents();
-  render();
+  const host = $('#grid');
+  if (host) host.innerHTML = skeletonCards(3);
+  try {
+    all = await getEvents();
+    render();
+  } catch (e) {
+    all = [];
+    if (host) {
+      host.innerHTML = `<div class="state"><h3>Couldn't load events</h3><p>${esc(e?.message || 'Failed to load data. Please try again.')}</p><button class="btn btn-primary" id="evRetry">Retry</button></div>`;
+      host.querySelector('#evRetry')?.addEventListener('click', load);
+    }
+  }
 }
 
 function render() {

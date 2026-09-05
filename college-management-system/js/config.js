@@ -10,28 +10,25 @@
 export const APP = {
   NAME: 'College Management System',
   SHORT_NAME: 'CMS',
-  COLLEGE_NAME: 'Meridian Institute of Engineering & Technology',
-  COLLEGE_SHORT: 'MIET',
+  COLLEGE_NAME: 'Askbook',
+  COLLEGE_SHORT: 'Askbook',
+  // Sub-brand / co-brand tag rendered as a refined badge next to the name.
+  COLLEGE_SUB: 'SCEP',
+  // Local college logo asset (app-root-relative; use resolvePath() for links).
+  COLLEGE_LOGO: '/assets/images/college_logo.png',
   VERSION: '1.0.0-frontend',
 };
 
 /**
- * Future backend integration seam.
- * USE_MOCK = true keeps everything running on local mock data.
- * Flip to false (and implement apiClient) when the real API is ready.
+ * Backend configuration. The app is fully backed by the real Node.js/Express +
+ * PostgreSQL backend (no mock data). AUTH_USE_BACKEND gates all authenticated
+ * API calls; the static frontend is typically served from a different origin
+ * than the backend, so API_BASE_URL must be absolute for cross-origin calls.
  */
 export const ENV = {
-  USE_MOCK: true,
-  // Absolute base URL of the Node.js/Express backend. The static frontend is
-  // typically served from a different origin/port (e.g. 5500/8000) than the
-  // backend (5000), so this must be absolute for cross-origin API calls.
   API_BASE_URL: 'http://localhost:5000/api',
-  // Auth/profile sync uses the REAL backend even while other services stay on
-  // mock data. This is intentionally separate from USE_MOCK so wiring auth to
-  // PostgreSQL does not disturb the unrelated mock services (classes, notes…).
   AUTH_USE_BACKEND: true,
-  WS_URL: '', // placeholder — websocketService will use this later
-  SIMULATED_LATENCY_MS: 350, // makes loading states visible/realistic
+  WS_URL: '', // empty -> realtimeService derives ws(s)://host/ws from API_BASE_URL
 };
 
 export const ROLES = {
@@ -161,32 +158,16 @@ export const TARGET_AUDIENCES = [
 ];
 
 /**
- * DEMO content ownership (design/demo only — NOT authentication).
- * The seed classes/announcements/papers in mockData.js are owned by this demo
- * faculty id, and the demo student profile below scopes the student views.
- *
- * These values are NOT credentials and are NOT tied to any real user identity.
- * Firebase Authentication supplies the real identity (uid/email/name). Once the
- * Node.js + PostgreSQL backend exists, real per-user profiles (keyed by Firebase
- * UID) replace these demo attributes and this block can be deleted.
+ * Storage keys for ALLOWED client-side caches only (NOT business data):
+ *   SESSION  — cached verified backend profile (auth convenience; re-verified
+ *              server-side on every request).
+ *   AI_CHATS — local AI assistant chat threads (scoped per Firebase UID).
+ * Business data (classes/notes/papers/announcements/messages/notifications) is
+ * NEVER stored client-side; it lives in PostgreSQL and is fetched from the API.
  */
-export const DEMO_CONTENT = {
-  FACULTY_OWNER_ID: 'FAC1001', // owner of the seed content in mockData.js
-  STUDENT_PROFILE: { course: 'B.Tech', branch: 'Computer Science', semester: 3, roll: 'CSE-B3-014' },
-};
-
-/** localStorage keys — used to persist mock state across pages. */
 export const STORAGE_KEYS = {
   SESSION: 'cms.session',
-  CLASSES: 'cms.classes',
-  ANNOUNCEMENTS: 'cms.announcements',
-  QUESTION_PAPERS: 'cms.questionPapers',
-  FACULTY: 'cms.faculty',
-  STUDENTS: 'cms.students',
-  NOTES: 'cms.notes',
-  MESSAGES: 'cms.messages',
   AI_CHATS: 'cms.aiChats',
-  EVENTS: 'cms.events',
 };
 
 /** Event categories/types (used by faculty Add Event + student filter). */
@@ -220,6 +201,7 @@ export const ROUTES = {
     DASHBOARD: '/admin/dashboard.html',
     FACULTY: '/admin/faculty.html',
     STUDENTS: '/admin/students.html',
+    MANAGEMENT: '/admin/management.html',
     CLASSES: '/admin/classes.html',
     COURSES: '/admin/courses.html',
     SETTINGS: '/admin/settings.html',

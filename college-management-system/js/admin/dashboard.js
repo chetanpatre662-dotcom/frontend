@@ -1,23 +1,23 @@
 /**
- * admin/dashboard.js — Administration overview: real institute metrics,
- * management shortcuts, and recent announcements. No decorative graphics or
- * fabricated analytics — every number maps to a real (mock) collection.
+ * admin/dashboard.js — Administration overview.
+ * -----------------------------------------------------------------------------
+ * User counts (Total users / Students / Faculty / Admins) come from the REAL
+ * backend (`GET /api/admin/stats` -> PostgreSQL). Pending-faculty count is also
+ * real. Metrics that depend on data not yet migrated to the backend (classes,
+ * announcements, question papers — Phase B) are shown as an honest "N/A" rather
+ * than fabricated mock numbers. No mock services are used here anymore.
+ * -----------------------------------------------------------------------------
  */
 import { ROUTES, resolvePath } from '../config.js';
-import { esc, timeAgo } from '../common/dom.js';
+import { esc } from '../common/dom.js';
 import { icon } from '../common/icons.js';
-import { typeBadge, loadingState } from '../common/components.js';
+import { loadingState } from '../common/components.js';
 import { bootstrapAdmin } from './nav.js';
-import { getFaculty } from '../services/facultyService.js';
-import { getStudents } from '../services/studentService.js';
-import { getClasses } from '../services/classService.js';
-import { getAnnouncements } from '../services/announcementService.js';
-import { getPapers } from '../services/questionPaperService.js';
+import { getAdminStats } from '../services/adminService.js';
 
 bootstrapAdmin({ activeId: 'dashboard', title: 'Overview' }).then((ctx) => { if (ctx) init(ctx); });
 
 async function init({ main, user }) {
-  const firstName = (user.name || 'Administrator').split(' ')[0];
   main.innerHTML = `
     <div class="greeting">
       <div>
@@ -28,27 +28,39 @@ async function init({ main, user }) {
     <div id="dashBody">${loadingState('Loading overview…')}</div>
   `;
 
-  const [faculty, students, classes, anns, papers] = await Promise.all([
-    getFaculty(), getStudents(), getClasses(), getAnnouncements(), getPapers(),
-  ]);
-  const activeClasses = classes.filter((c) => c.status === 'active').length;
+  const body = document.getElementById('dashBody');
+  const res = await getAdminStats();
 
-  document.getElementById('dashBody').innerHTML = `
+  if (!res.ok) {
+    // Honest API-error state (no fake values), with a retry.
+    body.innerHTML = errorState(res.error || 'Could not load statistics.');
+    body.querySelector('#retryStats')?.addEventListener('click', () => init({ main, user }));
+    return;
+  }
+
+  const s = res.stats || {};
+  const naNote = 'N/A'; // Phase B metrics not yet backed by the database.
+
+  body.innerHTML = `
     <div class="metric-row">
-      ${metric('graduation', students.length, 'Students', ROUTES.ADMIN.STUDENTS)}
-      ${metric('user', faculty.length, 'Faculty', ROUTES.ADMIN.FACULTY)}
-      ${metric('classes', activeClasses, 'Active classes', ROUTES.ADMIN.CLASSES)}
-      ${metric('megaphone', anns.length, 'Announcements', null)}
-      ${metric('file', papers.length, 'Question papers', null)}
+      ${metric('users', s.totalUsers ?? 0, 'Total users', null)}
+      ${metric('graduation', s.students ?? 0, 'Students', ROUTES.ADMIN.STUDENTS)}
+      ${metric('user', s.faculty ?? 0, 'Faculty', ROUTES.ADMIN.FACULTY)}
+      ${metric('shield', s.admins ?? 0, 'Admins', null)}
+    </div>
+
+    <div class="metric-row">
+      ${metric('checkCircle', s.pendingFaculty ?? 0, 'Pending faculty', ROUTES.ADMIN.FACULTY)}
+      ${metric('classes', s.classes ?? 0, 'Classes', ROUTES.ADMIN.CLASSES)}
+      ${metric('book', s.subjects ?? 0, 'Subjects', ROUTES.ADMIN.COURSES)}
+      ${metric('megaphone', naNote, 'Announcements', null)}
     </div>
 
     <div class="dash-cols">
       <section class="section">
         <div class="section-head"><h2>Recent announcements</h2></div>
         <div class="card"><div class="card-body">
-          ${anns.length
-            ? `<div class="list-flush">${anns.slice(0, 6).map(annRow).join('')}</div>`
-            : '<p class="text-muted">No announcements yet.</p>'}
+          <p class="text-muted">Announcement data will appear here once the announcements module is connected to the database (Phase B).</p>
         </div></div>
       </section>
 
@@ -68,18 +80,20 @@ async function init({ main, user }) {
   `;
 }
 
+function errorState(message) {
+  return `
+    <div class="card"><div class="card-body" style="text-align:center;padding:var(--sp-6)">
+      <div class="text-muted" style="margin-bottom:var(--sp-3)">${icon('alert')} ${esc(message)}</div>
+      <button class="btn btn-primary" id="retryStats">${icon('arrowRight')} Retry</button>
+    </div></div>`;
+}
+
 function metric(iconName, value, label, route) {
-  const inner = `<div class="metric"><div class="m-label">${icon(iconName)} ${esc(label)}</div><div class="m-value">${value}</div></div>`;
+  const inner = `<div class="metric"><div class="m-label">${icon(iconName)} ${esc(label)}</div><div class="m-value">${esc(String(value))}</div></div>`;
   return route ? `<a href="${resolvePath(route)}" style="text-decoration:none">${inner}</a>` : inner;
 }
 
 function link(label, route, iconName) {
   return `<a class="list-link" href="${resolvePath(route)}"><span class="lr-icon">${icon(iconName)}</span>
     <span class="lr-title">${esc(label)}</span><span class="ll-chev">${icon('chevronRight')}</span></a>`;
-}
-
-function annRow(a) {
-  return `<div class="list-row"><span class="lr-icon">${icon('megaphone')}</span>
-    <div class="lr-main"><div class="lr-title">${esc(a.title)}</div><div class="lr-meta">${esc(timeAgo(a.created))}</div></div>
-    <div class="lr-right">${typeBadge(a.type)}</div></div>`;
 }

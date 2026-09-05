@@ -3,7 +3,8 @@
    ========================================================================= */
 
 /* Student accent = emerald. Sidebar stays light; only accents differ. */
-.role-student .sidebar .sb-logo { background: var(--success-600); }
+/* Logo badge now holds the real PNG college logo — keep it transparent. */
+.role-student .sidebar .sb-logo { background: transparent; }
 .role-student .sidebar .sb-link.active { background: var(--success-100); color: #047857; }
 .role-student .sidebar .sb-link.active svg { color: var(--success-600); }
 .role-student .sidebar .sb-link.sb-ai,

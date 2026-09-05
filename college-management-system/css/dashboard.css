@@ -36,14 +36,37 @@
   height: var(--header-h);
 }
 .sidebar .sb-logo {
-  width: 34px; height: 34px;
+  width: 38px; height: 38px;
   border-radius: 9px;
-  background: var(--brand-600);
+  background: transparent;
   display: grid; place-items: center;
   flex-shrink: 0;
+  overflow: hidden;
 }
 .sidebar .sb-logo svg { width: 20px; height: 20px; color: #fff; }
-.sidebar .sb-name { font-weight: 700; font-size: var(--fs-md); color: var(--gray-900); line-height: 1.2; }
+/* Real PNG college logo: contain within the badge, crisp + vertically centered. */
+.sidebar .sb-logo img {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.sidebar .sb-brand-text { min-width: 0; }
+.sidebar .sb-name {
+  font-weight: 700; font-size: var(--fs-md); color: var(--gray-900); line-height: 1.2;
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+}
+/* SCEP sub-brand: refined uppercase, tracked-out, muted accent badge. */
+.sidebar .sb-subbrand {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brand-600, #6d28d9);
+  background: var(--brand-100, #ede9fe);
+  padding: 1px 6px;
+  border-radius: 999px;
+  line-height: 1.6;
+}
 .sidebar .sb-role { font-size: var(--fs-xs); color: var(--text-muted); }
 
 .sidebar .sb-nav { padding: var(--sp-3) var(--sp-3); flex: 1; }

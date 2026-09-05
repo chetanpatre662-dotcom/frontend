@@ -6,9 +6,7 @@ import { APP } from '../config.js';
 import { $, $$, esc } from '../common/dom.js';
 import { icon } from '../common/icons.js';
 import { toastSuccess, toastInfo } from '../common/toast.js';
-import { confirmDialog } from '../common/modal.js';
 import { bootstrapAdmin } from './nav.js';
-import { resetAll } from '../services/store.js';
 
 bootstrapAdmin({ activeId: 'settings', title: 'Settings' }).then((ctx) => { if (ctx) init(ctx); });
 
@@ -26,7 +24,6 @@ function init({ main, user }) {
         <a class="sn-link active" data-tab="institute">Institute Profile</a>
         <a class="sn-link" data-tab="preferences">Preferences</a>
         <a class="sn-link" data-tab="account">Admin Account</a>
-        <a class="sn-link" data-tab="data">Data & Reset</a>
       </div></nav>
 
       <div id="tabArea"></div>
@@ -37,7 +34,6 @@ function init({ main, user }) {
     institute: institutePanel(),
     preferences: preferencesPanel(),
     account: accountPanel(user),
-    data: dataPanel(),
   };
 
   const area = $('#tabArea');
@@ -64,7 +60,7 @@ function institutePanel() {
         <div class="form-group"><label class="form-label">Short code</label>
           <input class="input" name="short" value="${esc(APP.COLLEGE_SHORT)}" /></div>
         <div class="form-group"><label class="form-label">Contact email</label>
-          <input class="input" name="email" type="email" value="info@miet.edu" /></div>
+          <input class="input" name="email" type="email" value="info@askbook.edu" /></div>
       </div>
       <button type="button" class="btn btn-primary" id="saveInst">${icon('check')} Save changes</button>
     </form>
@@ -85,18 +81,11 @@ function accountPanel(user) {
     <div class="flex items-center gap-3 mb-4">
       <div class="avatar lg" style="background:#6d28d9">${esc((user.name || 'A')[0])}</div>
       <div><div style="font-weight:700">${esc(user.name)}</div>
-        <div class="text-muted">${esc(user.email || 'admin@miet.edu')}</div></div>
+        <div class="text-muted">${esc(user.email || 'admin@askbook.edu')}</div></div>
     </div>
     <div class="form-group"><label class="form-label">Change password</label>
       <input class="input" type="password" placeholder="New password" /></div>
     <button type="button" class="btn btn-primary" id="savePw">${icon('key')} Update password</button>
-  `);
-}
-
-function dataPanel() {
-  return card('Data & Reset', `
-    <p class="text-muted mb-4">This demo runs entirely on mock data stored in your browser. Resetting restores the original sample data.</p>
-    <button type="button" class="btn btn-danger" id="resetBtn">${icon('trash')} Reset demo data</button>
   `);
 }
 
@@ -105,17 +94,4 @@ function wire(tab, area) {
   if (tab === 'institute') area.querySelector('#saveInst')?.addEventListener('click', () => toastSuccess('Institute profile saved (frontend only).'));
   if (tab === 'preferences') area.querySelector('#savePrefs')?.addEventListener('click', () => toastSuccess('Preferences saved (frontend only).'));
   if (tab === 'account') stub('savePw', 'Password changes require backend authentication (Phase 2).');
-  if (tab === 'data') {
-    area.querySelector('#resetBtn')?.addEventListener('click', async () => {
-      const ok = await confirmDialog({
-        title: 'Reset demo data?',
-        message: 'All classes, announcements, papers, faculty and student edits will be restored to defaults.',
-        confirmLabel: 'Reset',
-      });
-      if (!ok) return;
-      resetAll();
-      toastSuccess('Demo data reset. Reloading…');
-      setTimeout(() => window.location.reload(), 900);
-    });
-  }
 }

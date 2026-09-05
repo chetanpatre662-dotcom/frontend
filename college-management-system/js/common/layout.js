@@ -7,7 +7,8 @@ import { APP, resolvePath } from '../config.js';
 import { icon } from './icons.js';
 import { esc, initials, timeAgo } from './dom.js';
 import { logout } from '../services/authService.js';
-import { mockNotifications } from '../data/mockData.js';
+import { getNotifications, markAllRead } from '../services/notificationService.js';
+import * as realtime from '../services/realtimeService.js';
 
 /**
  * @param {object} cfg
@@ -42,28 +43,14 @@ export function mountLayout(cfg) {
     })
     .join('');
 
-  const unread = mockNotifications.filter((n) => n.unread).length;
-  const notifItems = mockNotifications
-    .map(
-      (n) => `
-      <div class="notif-item ${n.unread ? 'unread' : ''}">
-        <div class="ni-icon">${icon(n.icon)}</div>
-        <div>
-          <div class="ni-title">${esc(n.title)}</div>
-          <div class="ni-time">${esc(timeAgo(n.time))}</div>
-        </div>
-      </div>`
-    )
-    .join('');
-
   const shell = document.createElement('div');
   shell.className = 'app-shell';
   shell.innerHTML = `
     <aside class="sidebar" id="sidebar" aria-label="Primary navigation">
       <div class="sb-brand">
-        <div class="sb-logo">${icon('logo')}</div>
-        <div>
-          <div class="sb-name">${esc(APP.COLLEGE_SHORT)}</div>
+        <div class="sb-logo"><img src="${resolvePath(APP.COLLEGE_LOGO)}" alt="${esc(APP.COLLEGE_NAME)} logo" /></div>
+        <div class="sb-brand-text">
+          <div class="sb-name">${esc(APP.COLLEGE_SHORT)}<span class="sb-subbrand">${esc(APP.COLLEGE_SUB)}</span></div>
           <div class="sb-role">${esc(cfg.roleLabel)}</div>
         </div>
       </div>
@@ -86,14 +73,14 @@ export function mountLayout(cfg) {
         <div class="notif-wrap">
           <button class="notif-btn" id="notifBtn" aria-label="Notifications">
             ${icon('bell')}
-            ${unread ? '<span class="dot"></span>' : ''}
+            <span class="dot" id="notifDot" style="display:none"></span>
           </button>
           <div class="notif-panel" id="notifPanel" role="dialog" aria-label="Notifications">
             <div class="np-head">
               <span>Notifications</span>
-              <span class="badge badge-brand">${unread} new</span>
+              <span class="badge badge-brand" id="notifCount">0 new</span>
             </div>
-            <div class="np-list">${notifItems}</div>
+            <div class="np-list" id="notifList"><div class="text-muted" style="padding:12px">Loading…</div></div>
           </div>
         </div>
         <div class="user-chip">
@@ -120,12 +107,53 @@ export function mountLayout(cfg) {
   shell.querySelector('#menuToggle').addEventListener('click', openSidebar);
   backdrop.addEventListener('click', closeSidebar);
 
-  // Notifications dropdown
+  // Notifications dropdown (REAL data + live via WebSocket, no polling)
   const notifPanel = shell.querySelector('#notifPanel');
   const notifBtn = shell.querySelector('#notifBtn');
-  notifBtn.addEventListener('click', (e) => {
+  const notifList = shell.querySelector('#notifList');
+  const notifCount = shell.querySelector('#notifCount');
+  const notifDot = shell.querySelector('#notifDot');
+
+  function renderNotifications(items, unread) {
+    notifCount.textContent = `${unread || 0} new`;
+    notifDot.style.display = unread > 0 ? '' : 'none';
+    if (!items || !items.length) {
+      notifList.innerHTML = `<div class="text-muted" style="padding:12px">No notifications yet.</div>`;
+      return;
+    }
+    notifList.innerHTML = items.map((n) => `
+      <div class="notif-item ${n.read ? '' : 'unread'}">
+        <div class="ni-icon">${icon('bell')}</div>
+        <div>
+          <div class="ni-title">${esc(n.title)}</div>
+          <div class="ni-time">${esc(timeAgo(n.createdAt))}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  async function loadNotifications() {
+    const res = await getNotifications({ limit: 20 });
+    if (!res.ok) { notifList.innerHTML = `<div class="text-muted" style="padding:12px">Could not load notifications.</div>`; return; }
+    renderNotifications(res.items, res.unread);
+  }
+
+  loadNotifications();
+
+  // Live: connect the shared WebSocket and refresh on pushed notifications.
+  realtime.connect();
+  realtime.subscribe('notification.created', () => loadNotifications());
+
+  notifBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
+    const opening = !notifPanel.classList.contains('open');
     notifPanel.classList.toggle('open');
+    if (opening) {
+      // Mark everything read when the panel is opened, then refresh the badge.
+      await markAllRead();
+      notifDot.style.display = 'none';
+      notifCount.textContent = '0 new';
+      loadNotifications();
+    }
   });
   document.addEventListener('click', (e) => {
     if (!notifPanel.contains(e.target) && !notifBtn.contains(e.target)) {

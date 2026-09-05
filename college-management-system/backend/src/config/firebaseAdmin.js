@@ -43,13 +43,16 @@ function initFirebaseAdmin() {
   try {
     // Guard against double init if the SDK was already initialized elsewhere.
     if (admin.apps.length === 0) {
-      admin.initializeApp({
+      const opts = {
         credential: admin.credential.cert({
           projectId: env.firebase.projectId,
           clientEmail: env.firebase.clientEmail,
           privateKey: env.firebase.privateKey,
         }),
-      });
+      };
+      // Attach the Cloud Storage bucket when configured (Half B).
+      if (env.firebase.storageBucket) opts.storageBucket = env.firebase.storageBucket;
+      admin.initializeApp(opts);
     }
     initialized = true;
     return { ok: true, projectId: env.firebase.projectId };
@@ -57,6 +60,26 @@ function initFirebaseAdmin() {
     initError = err.message;
     return { ok: false, error: err.message };
   }
+}
+
+/** Whether a Storage bucket is configured. */
+function isStorageEnabled() {
+  return Boolean(env.firebase.storageBucket);
+}
+
+/**
+ * Get the Firebase Cloud Storage bucket handle. Ensures Admin is initialized.
+ * Throws if Storage is not configured.
+ */
+function getBucket() {
+  if (!env.firebase.storageBucket) {
+    throw new Error('Firebase Storage bucket is not configured (FIREBASE_STORAGE_BUCKET).');
+  }
+  if (!initialized) {
+    const r = initFirebaseAdmin();
+    if (!r.ok) throw new Error(`Firebase Admin not initialized: ${r.error}`);
+  }
+  return admin.storage().bucket(env.firebase.storageBucket);
 }
 
 /** Whether Firebase Admin has been successfully initialized. */
@@ -81,4 +104,32 @@ async function verifyIdToken(idToken) {
   return admin.auth().verifyIdToken(idToken);
 }
 
-module.exports = { admin, initFirebaseAdmin, isInitialized, verifyIdToken };
+/**
+ * Delete a Firebase Authentication user by UID (server-side, Admin SDK).
+ * Ensures the SDK is initialized first. Treats "user not found" as success
+ * (idempotent) since the goal is that the account no longer exists.
+ *
+ * @param {string} uid - Firebase UID to delete
+ * @returns {Promise<{ok: boolean, alreadyAbsent?: boolean, error?: string}>}
+ */
+async function deleteFirebaseUser(uid) {
+  if (!uid) return { ok: false, error: 'No UID provided.' };
+  if (!initialized) {
+    const result = initFirebaseAdmin();
+    if (!result.ok) {
+      return { ok: false, error: `Firebase Admin not initialized: ${result.error}` };
+    }
+  }
+  try {
+    await admin.auth().deleteUser(uid);
+    return { ok: true };
+  } catch (err) {
+    // If the user is already gone, that satisfies the delete intent.
+    if (err && err.code === 'auth/user-not-found') {
+      return { ok: true, alreadyAbsent: true };
+    }
+    return { ok: false, error: err.message };
+  }
+}
+
+module.exports = { admin, initFirebaseAdmin, isInitialized, verifyIdToken, deleteFirebaseUser, isStorageEnabled, getBucket };

@@ -1,56 +1,90 @@
 /**
- * admin/faculty.js — Faculty management: list, search, add, edit, toggle status.
+ * admin/faculty.js — Faculty management (REAL backend).
+ * -----------------------------------------------------------------------------
+ * Lists users who have a FACULTY PROFILE (pending applicants + approved
+ * faculty) from GET /api/admin/users. Admin actions:
+ *   - Approve Faculty  (pending: role student -> faculty)   [PATCH approve-faculty]
+ *   - Make Admin       (faculty-profile user -> admin)       [PATCH make-admin]
+ *   - Delete           (removes PostgreSQL + Firebase user)  [DELETE]
+ *
+ * Faculty self-register (there is no admin "add faculty" in the real model), so
+ * the previous mock add/edit/toggle flow is replaced by these real actions.
+ * All authorization is enforced server-side (requireAuth + requireAdmin); the
+ * UI simply reflects the server's eligibility flags and re-checks on the server.
+ * -----------------------------------------------------------------------------
  */
-import { BRANCHES } from '../config.js';
-import { $, $$, esc, formatDate, debounce, initials } from '../common/dom.js';
+import { $, $$, esc, debounce, initials } from '../common/dom.js';
 import { icon } from '../common/icons.js';
-import { statusBadge, emptyState, skeletonCards, paginationBar } from '../common/components.js';
-import { openModal, confirmDialog } from '../common/modal.js';
+import { emptyState, skeletonCards, paginationBar } from '../common/components.js';
+import { confirmDialog } from '../common/modal.js';
 import { toastSuccess, toastError } from '../common/toast.js';
-import { validateForm, rules, clearErrors } from '../common/validation.js';
 import { bootstrapAdmin } from './nav.js';
-import { getFaculty, addFaculty, updateFaculty, toggleFacultyStatus } from '../services/facultyService.js';
+import { getAdminUsers, approveFaculty, makeAdmin, deleteUser } from '../services/adminService.js';
 
-const PAGE_SIZE = 5;
-let all = [];
+const PAGE_SIZE = 6;
+let all = [];        // users with a faculty profile
+let currentUser = null; // logged-in admin (for self-delete protection)
 let page = 1;
 
 bootstrapAdmin({ activeId: 'faculty', title: 'Faculty Management' }).then((ctx) => { if (ctx) init(ctx); });
 
-async function init({ main }) {
+async function init({ main, user }) {
+  currentUser = user;
   main.innerHTML = `
     <div class="page-head">
       <div>
         <h1 class="page-title">Faculty Management</h1>
-        <p class="page-subtitle">Add, edit and manage faculty accounts.</p>
+        <p class="page-subtitle">Approve pending faculty, promote to admin, and manage faculty accounts.</p>
       </div>
-      <button class="btn btn-primary" id="addBtn">${icon('plus')} Add Faculty</button>
     </div>
     <div class="card mb-4"><div class="card-body">
       <div class="toolbar">
         <input class="input search" id="searchInput" type="search" placeholder="Search name, email or department…" />
-        <select id="fStatus"><option value="">All Status</option>
-          <option value="active">Active</option><option value="inactive">Inactive</option></select>
+        <select id="fStatus"><option value="">All</option>
+          <option value="pending">Pending approval</option>
+          <option value="faculty">Approved faculty</option>
+          <option value="admin">Admins</option></select>
       </div>
     </div></div>
     <div class="card"><div class="card-body"><div id="tableArea">${skeletonCards(1)}</div></div></div>
   `;
 
-  $('#addBtn').addEventListener('click', () => openForm());
   $('#searchInput').addEventListener('input', debounce(() => { page = 1; render(); }, 200));
   $('#fStatus').addEventListener('change', () => { page = 1; render(); });
 
   await load();
 }
 
-async function load() { all = await getFaculty(); render(); }
+async function load() {
+  const host = $('#tableArea');
+  if (host) host.innerHTML = skeletonCards(1);
+  const res = await getAdminUsers();
+  if (!res.ok) {
+    if (host) {
+      host.innerHTML = errorState(res.error || 'Could not load users.');
+      host.querySelector('#retryBtn')?.addEventListener('click', load);
+    }
+    return;
+  }
+  // Faculty page scope: only users who have a faculty profile.
+  all = (res.users || []).filter((u) => u.hasFacultyProfile);
+  render();
+}
+
+function statusOf(u) {
+  if (u.role === 'admin') return 'admin';
+  if (u.role === 'faculty') return 'faculty';
+  return 'pending'; // has faculty profile but role still 'student'
+}
 
 function getFiltered() {
   const q = $('#searchInput').value.trim().toLowerCase();
   const fs = $('#fStatus').value;
-  return all.filter((f) => {
-    const mQ = !q || `${f.name} ${f.email} ${f.department}`.toLowerCase().includes(q);
-    const mS = !fs || f.status === fs;
+  return all.filter((u) => {
+    const f = u.faculty || {};
+    const hay = `${f.fullName || u.displayName || ''} ${u.email || ''} ${f.department || ''}`.toLowerCase();
+    const mQ = !q || hay.includes(q);
+    const mS = !fs || statusOf(u) === fs;
     return mQ && mS;
   });
 }
@@ -59,7 +93,7 @@ function render() {
   const filtered = getFiltered();
   const host = $('#tableArea');
   if (!filtered.length) {
-    host.innerHTML = emptyState({ iconName: 'user', title: 'No faculty found', message: 'Adjust filters or add a new faculty member.' });
+    host.innerHTML = emptyState({ iconName: 'user', title: 'No faculty found', message: 'No faculty users match the current filter.' });
     return;
   }
   const total = filtered.length;
@@ -69,124 +103,116 @@ function render() {
 
   host.innerHTML = `
     <div class="table-wrap"><table class="data-table">
-      <thead><tr><th>Faculty</th><th>Department</th><th>Designation</th><th>Joined</th><th>Status</th><th>Actions</th></tr></thead>
+      <thead><tr><th>Faculty</th><th>Department</th><th>Designation</th><th>Employee ID</th><th>Status</th><th>Actions</th></tr></thead>
       <tbody>${rows.map(rowHTML).join('')}</tbody>
     </table></div>
     ${paginationBar({ page, pageSize: PAGE_SIZE, total })}
   `;
 
-  $$('[data-edit]', host).forEach((b) => b.addEventListener('click', () => openForm(b.dataset.edit)));
-  $$('[data-toggle]', host).forEach((b) => b.addEventListener('click', () => onToggle(b.dataset.toggle)));
+  $$('[data-approve]', host).forEach((b) => b.addEventListener('click', () => onApprove(b.dataset.approve)));
+  $$('[data-makeadmin]', host).forEach((b) => b.addEventListener('click', () => onMakeAdmin(b.dataset.makeadmin)));
+  $$('[data-delete]', host).forEach((b) => b.addEventListener('click', () => onDelete(b.dataset.delete)));
   $$('.page-btn', host).forEach((b) => b.addEventListener('click', () => {
     const p = Number(b.dataset.page);
     if (p >= 1 && p <= pages) { page = p; render(); }
   }));
 }
 
-function rowHTML(f) {
+function statusBadgeFor(u) {
+  const s = statusOf(u);
+  const map = {
+    pending: '<span class="badge" style="background:var(--warning-100,#fef3c7);color:var(--warning-700,#b45309)">Pending approval</span>',
+    faculty: '<span class="badge" style="background:var(--success-100,#dcfce7);color:var(--success-700,#15803d)">Faculty</span>',
+    admin: '<span class="badge" style="background:#ede9fe;color:#6d28d9">Admin</span>',
+  };
+  return map[s] || esc(s);
+}
+
+function rowHTML(u) {
+  const f = u.faculty || {};
+  const name = f.fullName || u.displayName || (u.email ? u.email.split('@')[0] : 'User');
+  const isSelf = currentUser && Number(u.id) === Number(currentUser.id);
+
+  const actions = [];
+  if (u.canApproveFaculty) {
+    actions.push(`<button class="btn btn-sm btn-primary" data-approve="${u.id}">${icon('check')} Approve</button>`);
+  }
+  if (u.canMakeAdmin) {
+    actions.push(`<button class="btn btn-sm btn-outline" data-makeadmin="${u.id}">${icon('shield')} Make Admin</button>`);
+  }
+  // Self-delete protection: never render a delete button for the logged-in admin.
+  if (!isSelf) {
+    actions.push(`<button class="btn-icon" data-delete="${u.id}" title="Delete user">${icon('trash')}</button>`);
+  }
+
   return `
     <tr>
       <td><div class="flex items-center gap-3">
-        <div class="avatar" style="width:34px;height:34px;font-size:var(--fs-xs)">${esc(initials(f.name))}</div>
-        <div><div style="font-weight:600">${esc(f.name)}</div>
-          <div class="text-muted" style="font-size:var(--fs-xs)">${esc(f.email)}</div></div>
+        <div class="avatar" style="width:34px;height:34px;font-size:var(--fs-xs)">${esc(initials(name))}</div>
+        <div><div style="font-weight:600">${esc(name)}${isSelf ? ' <span class="text-muted" style="font-weight:400">(you)</span>' : ''}</div>
+          <div class="text-muted" style="font-size:var(--fs-xs)">${esc(u.email || '')}</div></div>
       </div></td>
-      <td>${esc(f.department)}</td>
-      <td>${esc(f.designation)}</td>
-      <td>${formatDate(f.joined)}</td>
-      <td>${statusBadge(f.status)}</td>
-      <td><div class="row-actions">
-        <button class="btn-icon" data-edit="${f.id}" title="Edit">${icon('edit')}</button>
-        <button class="btn btn-sm ${f.status === 'active' ? 'btn-ghost' : 'btn-outline'}" data-toggle="${f.id}">
-          ${f.status === 'active' ? 'Deactivate' : 'Activate'}</button>
-      </div></td>
+      <td>${esc(f.department || '—')}</td>
+      <td>${esc(f.designation || '—')}</td>
+      <td>${esc(f.employeeId || '—')}</td>
+      <td>${statusBadgeFor(u)}</td>
+      <td><div class="row-actions">${actions.join('') || '<span class="text-muted">—</span>'}</div></td>
     </tr>`;
 }
 
-async function onToggle(id) {
-  const f = all.find((x) => x.id === id);
-  const goingInactive = f.status === 'active';
-  if (goingInactive) {
-    const ok = await confirmDialog({
-      title: 'Deactivate faculty?',
-      message: `${f.name} will lose portal access until reactivated.`,
-      confirmLabel: 'Deactivate',
-    });
-    if (!ok) return;
-  }
-  await toggleFacultyStatus(id);
-  toastSuccess(`${f.name} ${goingInactive ? 'deactivated' : 'activated'}.`);
+async function onApprove(id) {
+  const u = all.find((x) => String(x.id) === String(id));
+  const name = u?.faculty?.fullName || u?.email || 'this user';
+  const ok = await confirmDialog({
+    title: 'Approve faculty?',
+    message: `${name} will be granted the faculty role and faculty portal access.`,
+    confirmLabel: 'Approve',
+  });
+  if (!ok) return;
+  const res = await approveFaculty(id);
+  if (!res.ok) return toastError(res.error || 'Could not approve faculty.');
+  toastSuccess('Faculty approved.');
   await load();
 }
 
-function openForm(editId) {
-  const existing = editId ? all.find((x) => x.id === editId) : null;
-  const { close, el } = openModal({
-    title: existing ? 'Edit faculty' : 'Add faculty',
-    body: `
-      <form id="facForm" novalidate>
-        <div class="form-group">
-          <label class="form-label" for="name">Full name <span class="req">*</span></label>
-          <input class="input" id="name" name="name" placeholder="e.g. Dr. Anita Sharma" />
-          <div class="field-error"></div>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="email">Email <span class="req">*</span></label>
-          <input class="input" id="email" name="email" type="email" placeholder="name@miet.edu" />
-          <div class="field-error"></div>
-        </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label" for="department">Department <span class="req">*</span></label>
-            <select id="department" name="department">${BRANCHES.map((b) => `<option>${b}</option>`).join('')}</select>
-          </div>
-          <div class="form-group">
-            <label class="form-label" for="designation">Designation <span class="req">*</span></label>
-            <select id="designation" name="designation">
-              <option>Assistant Professor</option><option>Associate Professor</option><option>Professor</option>
-            </select>
-          </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="phone">Phone</label>
-          <input class="input" id="phone" name="phone" placeholder="+91 …" />
-        </div>
-      </form>
-    `,
-    actions: [
-      { label: 'Cancel', class: 'btn-ghost' },
-      { label: existing ? 'Update' : 'Add', class: 'btn-primary', closeOnClick: false, onClick: () => submit() },
-    ],
+async function onMakeAdmin(id) {
+  const u = all.find((x) => String(x.id) === String(id));
+  const name = u?.faculty?.fullName || u?.email || 'this user';
+  const ok = await confirmDialog({
+    title: 'Promote to admin?',
+    message: `${name} will be granted full administrator access. This is a powerful role — proceed with care.`,
+    confirmLabel: 'Make Admin',
   });
+  if (!ok) return;
+  const res = await makeAdmin(id);
+  if (!res.ok) return toastError(res.error || 'Could not promote user.');
+  toastSuccess('User promoted to admin.');
+  await load();
+}
 
-  const form = $('#facForm', el);
-  if (existing) {
-    form.elements['name'].value = existing.name;
-    form.elements['email'].value = existing.email;
-    form.elements['department'].value = existing.department;
-    form.elements['designation'].value = existing.designation;
-    form.elements['phone'].value = existing.phone || '';
+async function onDelete(id) {
+  const u = all.find((x) => String(x.id) === String(id));
+  const name = u?.faculty?.fullName || u?.email || 'this user';
+  const ok = await confirmDialog({
+    title: 'Delete user?',
+    message: `${name} will be permanently removed from the database and Firebase Authentication. This cannot be undone.`,
+    confirmLabel: 'Delete',
+  });
+  if (!ok) return;
+  const res = await deleteUser(id);
+  if (!res.ok) return toastError(res.error || 'Could not delete user.');
+  if (res.partialFailure) {
+    toastError('User removed from database, but the Firebase account could not be deleted. Please remove it manually.');
+  } else {
+    toastSuccess('User deleted.');
   }
+  await load();
+}
 
-  async function submit() {
-    clearErrors(form);
-    const ok = validateForm(form, {
-      name: [rules.required],
-      email: [rules.required, rules.email],
-    });
-    if (!ok) return;
-
-    const payload = {
-      name: form.elements['name'].value.trim(),
-      email: form.elements['email'].value.trim(),
-      department: form.elements['department'].value,
-      designation: form.elements['designation'].value,
-      phone: form.elements['phone'].value.trim(),
-    };
-    const res = existing ? await updateFaculty(existing.id, payload) : await addFaculty(payload);
-    if (!res.ok) return toastError(res.error || 'Save failed.');
-    toastSuccess(existing ? 'Faculty updated.' : 'Faculty added.');
-    close();
-    await load();
-  }
+function errorState(message) {
+  return `
+    <div style="text-align:center;padding:var(--sp-6)">
+      <div class="text-muted" style="margin-bottom:var(--sp-3)">${icon('alert')} ${esc(message)}</div>
+      <button class="btn btn-primary" id="retryBtn">${icon('arrowRight')} Retry</button>
+    </div>`;
 }

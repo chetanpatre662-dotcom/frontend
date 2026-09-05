@@ -23,6 +23,7 @@ const { createApp } = require('./app');
 const { initFirebaseAdmin } = require('./config/firebaseAdmin');
 const { verifyConnection, closePool } = require('./config/database');
 const { allowedOrigins } = require('./config/cors');
+const wsServer = require('./realtime/wsServer');
 
 async function start() {
   console.log('----------------------------------------------------------');
@@ -57,6 +58,10 @@ async function start() {
     console.log(`[cors]   Allowed origins: ${allowedOrigins.join(', ')}`);
     console.log('----------------------------------------------------------');
   });
+
+  // 6) Attach the authenticated WebSocket realtime pipeline (shares the port).
+  wsServer.attach(server);
+  console.log(`[ws]     Realtime pipeline attached at ws://localhost:${env.PORT}/ws`);
 
   // --- Graceful shutdown ---
   const shutdown = async (signal) => {

@@ -44,9 +44,23 @@ async function init({ main }) {
   );
   $('#searchInput').addEventListener('input', debounce(render, 200));
 
-  // Students only see published (active) events.
-  all = await getEvents({ status: 'active' });
-  render();
+  await load();
+}
+
+async function load() {
+  const host = $('#grid');
+  if (host) host.innerHTML = skeletonCards(3);
+  try {
+    // Students only see published (active) events.
+    all = await getEvents({ status: 'active' });
+    render();
+  } catch (e) {
+    all = [];
+    if (host) {
+      host.innerHTML = `<div class="state"><h3>Couldn't load events</h3><p>${e?.message || 'Failed to load data. Please try again.'}</p><button class="btn btn-primary" id="evRetry">Retry</button></div>`;
+      host.querySelector('#evRetry')?.addEventListener('click', load);
+    }
+  }
 }
 
 function render() {

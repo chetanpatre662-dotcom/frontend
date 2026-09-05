@@ -1,15 +1,15 @@
 /**
  * faculty/dashboard.js — Faculty workspace: greeting, quick actions,
- * My Classes, and recent activity. Metrics are backed by real content counts.
+ * My Classes, and recent activity. ALL metrics/lists come from the real backend
+ * (PostgreSQL aggregates). No mock, no localStorage, no fabricated numbers.
  */
-import { ROUTES, resolvePath, DEMO_CONTENT } from '../config.js';
+import { ROUTES, resolvePath } from '../config.js';
 import { esc, timeAgo, initials, avatarColor } from '../common/dom.js';
 import { icon } from '../common/icons.js';
-import { typeBadge, loadingState, emptyState } from '../common/components.js';
+import { loadingState, emptyState } from '../common/components.js';
 import { bootstrapFaculty } from './nav.js';
-import { getClasses } from '../services/classService.js';
-import { getAnnouncements } from '../services/announcementService.js';
-import { getPapers } from '../services/questionPaperService.js';
+import { getFacultyClasses } from '../services/classApiService.js';
+import { getFacultyDashboard } from '../services/dashboardService.js';
 
 bootstrapFaculty({ activeId: 'dashboard', title: 'Dashboard' }).then((ctx) => { if (ctx) init(ctx); });
 
@@ -20,8 +20,10 @@ function greetingWord() {
   return 'Good evening';
 }
 
+const ACTIVITY_ICON = { note: 'file', question_paper: 'file', assignment: 'clipboard', project: 'folder' };
+const ACTIVITY_LABEL = { note: 'Note', question_paper: 'Question paper', assignment: 'Assignment', project: 'Project' };
+
 async function init({ main, user }) {
-  const facultyId = DEMO_CONTENT.FACULTY_OWNER_ID;
   const firstName = (user.name || 'there').split(' ')[0];
 
   main.innerHTML = `
@@ -34,27 +36,36 @@ async function init({ main, user }) {
         <a class="btn btn-primary" href="${resolvePath(ROUTES.FACULTY.CLASSES)}">${icon('plus')} Create class</a>
       </div>
     </div>
-
     <div id="dashBody">${loadingState('Loading your workspace…')}</div>
   `;
 
-  const [classes, announcements, papers] = await Promise.all([
-    getClasses({ facultyId }),
-    getAnnouncements({ facultyId }),
-    getPapers({ facultyId }),
-  ]);
+  await load(main);
+}
 
+async function load(main) {
+  const body = document.getElementById('dashBody');
+  body.innerHTML = loadingState('Loading your workspace…');
+
+  const [dashRes, classesRes] = await Promise.all([getFacultyDashboard(), getFacultyClasses()]);
+
+  if (!dashRes.ok) {
+    body.innerHTML = errorHTML(dashRes.error || 'Could not load your dashboard.');
+    document.getElementById('dashRetry')?.addEventListener('click', () => load(main));
+    return;
+  }
+
+  const stats = dashRes.stats || {};
+  const recent = dashRes.recentActivity || [];
+  const classes = classesRes.ok ? (classesRes.classes || []) : [];
   const active = classes.filter((c) => c.status === 'active');
-  const totalStudents = classes.reduce((s, c) => s + (c.students || 0), 0);
-  const published = announcements.filter((a) => a.status === 'published').length;
   const classDetail = resolvePath(ROUTES.FACULTY.CLASS_DETAIL);
 
-  document.getElementById('dashBody').innerHTML = `
+  body.innerHTML = `
     <div class="metric-row">
-      ${metric('classes', active.length, 'Active classes')}
-      ${metric('users', totalStudents, 'Students reached')}
-      ${metric('megaphone', published, 'Published announcements')}
-      ${metric('file', papers.length, 'Question papers')}
+      ${metric('classes', stats.classes ?? 0, 'Active classes')}
+      ${metric('users', stats.studentsReached ?? 0, 'Students reached')}
+      ${metric('megaphone', stats.announcements ?? 0, 'Published announcements')}
+      ${metric('file', stats.questionPapers ?? 0, 'Question papers')}
     </div>
 
     <section class="section">
@@ -62,7 +73,7 @@ async function init({ main, user }) {
       <div class="quick-actions">
         ${qa('plus', 'Create class', ROUTES.FACULTY.CLASSES)}
         ${qa('message', 'Message a class', ROUTES.FACULTY.CLASSES)}
-        ${qa('upload', 'Upload notes', ROUTES.FACULTY.CLASSES)}
+        ${qa('megaphone', 'Post announcement', ROUTES.FACULTY.ANNOUNCEMENTS)}
         ${qa('file', 'Upload question paper', ROUTES.FACULTY.QUESTION_PAPERS)}
       </div>
     </section>
@@ -83,49 +94,47 @@ async function init({ main, user }) {
     </div>
   `;
 
-  renderActivity(announcements, papers);
+  renderActivity(recent);
 }
 
 function metric(iconName, value, label) {
-  return `<div class="metric"><div class="m-label">${icon(iconName)} ${esc(label)}</div><div class="m-value">${value}</div></div>`;
+  return `<div class="metric"><div class="m-label">${icon(iconName)} ${esc(label)}</div><div class="m-value">${esc(String(value))}</div></div>`;
 }
-
 function qa(iconName, label, route) {
   return `<a class="qa" href="${resolvePath(route)}"><span class="qa-icon">${icon(iconName)}</span>${esc(label)}</a>`;
 }
 
 function classCard(c, detailUrl) {
-  const archived = c.status === 'archived';
-  const subject = c.courseName || c.course;
+  const subject = c.subject || c.title || 'Class';
   return `
     <a class="klass-card compact" href="${detailUrl}?id=${encodeURIComponent(c.id)}">
       <div class="kc-top">
         <span class="kc-avatar" style="background:${avatarColor(subject)}">${esc(initials(subject))}</span>
         <div class="kc-head">
           <div class="kc-title" title="${esc(subject)}">${esc(subject)}</div>
-          <div class="kc-sub">${esc(c.program || c.course)} • ${esc(c.branch)} • Sem ${c.semester}</div>
+          <div class="kc-sub">${esc(c.course)} • ${esc(c.branch)} • Sem ${esc(String(c.semester))}</div>
         </div>
-        <span class="kc-status ${archived ? 'archived' : ''}">${esc(c.status.charAt(0).toUpperCase() + c.status.slice(1))}</span>
+        <span class="kc-status">${esc((c.status || 'active').replace(/^./, (m) => m.toUpperCase()))}</span>
       </div>
       <div class="kc-meta">
-        <span class="kc-fact">${icon('users')} ${c.students || 0} students</span>
         <span class="kc-open" style="margin-left:auto">Open ${icon('arrowRight')}</span>
       </div>
     </a>`;
 }
 
-function renderActivity(announcements, papers) {
-  const items = [
-    ...announcements.map((a) => ({ t: a.created, icon: 'megaphone', title: a.title, meta: 'Announcement', badge: typeBadge(a.type) })),
-    ...papers.map((p) => ({ t: p.uploaded, icon: 'file', title: p.title, meta: `Question paper · ${p.subject}`, badge: '' })),
-  ].sort((a, b) => new Date(b.t) - new Date(a.t)).slice(0, 6);
-
+function renderActivity(recent) {
   const host = document.getElementById('activity');
-  if (!items.length) { host.innerHTML = '<p class="text-muted">No recent activity.</p>'; return; }
-  host.innerHTML = `<div class="list-flush">${items.map((i) => `
+  if (!recent.length) { host.innerHTML = '<p class="text-muted">No recent activity.</p>'; return; }
+  host.innerHTML = `<div class="list-flush">${recent.map((i) => `
     <div class="list-row">
-      <span class="lr-icon">${icon(i.icon)}</span>
-      <div class="lr-main"><div class="lr-title">${esc(i.title)}</div><div class="lr-meta">${esc(i.meta)}</div></div>
-      <div class="lr-right">${i.badge}<span class="lr-meta">${esc(timeAgo(i.t))}</span></div>
+      <span class="lr-icon">${icon(ACTIVITY_ICON[i.kind] || 'file')}</span>
+      <div class="lr-main"><div class="lr-title">${esc(i.title)}</div><div class="lr-meta">${esc(ACTIVITY_LABEL[i.kind] || 'Item')}</div></div>
+      <div class="lr-right"><span class="lr-meta">${esc(timeAgo(i.createdAt))}</span></div>
     </div>`).join('')}</div>`;
+}
+
+function errorHTML(message) {
+  return `<div class="card"><div class="card-body" style="text-align:center;padding:24px">
+    <div class="text-muted" style="margin-bottom:12px">${icon('alert')} ${esc(message)}</div>
+    <button class="btn btn-primary" id="dashRetry">${icon('arrowRight')} Retry</button></div></div>`;
 }

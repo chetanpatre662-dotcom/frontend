@@ -1,43 +1,42 @@
 /**
- * questionPaperService.js — Previous question papers (mock).
- *
- * File upload/storage is out of scope for Phase 1. We only capture metadata +
- * a filename. Phase 2 wires the file to Firebase Cloud Storage and stores the
- * returned download URL on the record.
+ * questionPaperService.js — Real question papers API client.
+ * -----------------------------------------------------------------------------
+ * Question papers are class-scoped content (question_papers table). Listing:
+ *   - faculty: papers across the faculty's classes (GET /faculty/question-papers)
+ *   - student: papers for the student's academic group (GET /student/question-papers)
+ * Upload goes through the class content endpoint (multipart -> Firebase Storage)
+ * via classApiService.createContentWithFile(classId, 'question-papers', ...).
+ * Downloads use the backend signed-URL redirect (/files/:id/download).
+ * No mock, no localStorage.
+ * -----------------------------------------------------------------------------
  */
-import { STORAGE_KEYS } from '../config.js';
-import { get, set } from './store.js';
-import { latency } from './apiClient.js';
-import { uid } from '../common/dom.js';
+import { apiCall } from './httpService.js';
+import { createContentWithFile, fileDownloadPath } from './classApiService.js';
 
-const KEY = STORAGE_KEYS.QUESTION_PAPERS;
-
-export async function getPapers({ facultyId, classId } = {}) {
-  await latency();
-  let list = get(KEY);
-  if (facultyId) list = list.filter((p) => p.facultyId === facultyId);
-  if (classId) list = list.filter((p) => p.classId === classId);
-  return list.slice().sort((a, b) => new Date(b.uploaded) - new Date(a.uploaded));
+/** Papers across the authenticated faculty's classes. */
+export async function getFacultyPapers() {
+  const r = await apiCall('/faculty/question-papers', { method: 'GET' });
+  return r.ok ? { ok: true, items: r.items || [] } : r;
 }
 
-export async function uploadPaper(data) {
-  await latency(500); // uploads feel slower — exercise the loading state
-  const all = get(KEY);
-  const record = {
-    id: uid('QP'),
-    uploaded: new Date().toISOString().slice(0, 10),
-    // Phase 2: `file` becomes a Firebase Storage download URL.
-    file: data.fileName || 'uploaded_paper.pdf',
-    ...data,
-  };
-  delete record.fileName;
-  all.unshift(record);
-  set(KEY, all);
-  return { ok: true, data: record };
+/** Papers for the authenticated student's academic group. */
+export async function getStudentPapers() {
+  const r = await apiCall('/student/question-papers', { method: 'GET' });
+  return r.ok ? { ok: true, items: r.items || [] } : r;
 }
 
-export async function deletePaper(id) {
-  await latency();
-  set(KEY, get(KEY).filter((p) => p.id !== id));
-  return { ok: true };
+/**
+ * Upload a question paper to a class (real Firebase Storage + metadata).
+ * @param {string|number} classId
+ * @param {{title:string, description?:string, year?:number|string}} fields
+ * @param {File} file
+ */
+export async function uploadPaper(classId, fields, file) {
+  const data = { title: fields.title, description: fields.description || '' };
+  return createContentWithFile(classId, 'question-papers', data, file);
+}
+
+/** Absolute-safe download path for a stored paper file id. */
+export function paperDownloadPath(fileId) {
+  return fileDownloadPath(fileId);
 }

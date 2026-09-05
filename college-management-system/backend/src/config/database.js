@@ -14,8 +14,13 @@
  */
 'use strict';
 
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
 const { env } = require('./env');
+
+// Return DATE columns (OID 1082) as plain 'YYYY-MM-DD' strings instead of JS
+// Date objects. This avoids timezone shifts (a DATE has no time/zone; letting
+// node-postgres build a local Date can roll the day back/forward).
+types.setTypeParser(1082, (val) => val);
 
 /** Build the pg pool config from env (connection string preferred). */
 function buildPoolConfig() {

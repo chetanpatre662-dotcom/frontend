@@ -1,85 +1,37 @@
 /**
- * announcementService.js — Announcement CRUD + audience matching (mock).
+ * announcementService.js — Real announcements API client.
+ * -----------------------------------------------------------------------------
+ * Backend is the source of truth (PostgreSQL). Faculty manage their own
+ * announcements; students receive a server-targeted, published-only feed based
+ * on their real DB academic profile. No mock, no localStorage.
  *
- * getForStudent() demonstrates the targeting logic students will experience
- * once the backend + WebSocket push announcements in real time.
+ * Result objects: { ok:true, ... } | { ok:false, error, status }.
+ * -----------------------------------------------------------------------------
  */
-import { STORAGE_KEYS } from '../config.js';
-import { get, set } from './store.js';
-import { latency } from './apiClient.js';
-import { uid } from '../common/dom.js';
+import { apiCall } from './httpService.js';
 
-const KEY = STORAGE_KEYS.ANNOUNCEMENTS;
-
-export async function getAnnouncements({ facultyId } = {}) {
-  await latency();
-  const all = get(KEY);
-  const list = facultyId ? all.filter((a) => a.facultyId === facultyId) : all;
-  return list.sort((a, b) => new Date(b.created) - new Date(a.created));
+/** Faculty (own) or admin (all) announcements. */
+export async function getAnnouncements() {
+  const r = await apiCall('/faculty/announcements', { method: 'GET' });
+  return r.ok ? { ok: true, items: r.items || [] } : r;
 }
 
-export async function getAnnouncement(id) {
-  await latency(150);
-  return get(KEY).find((a) => a.id === id) || null;
+/** Student targeted, published-only feed (backend applies audience matching). */
+export async function getForStudent() {
+  const r = await apiCall('/student/announcements', { method: 'GET' });
+  return r.ok ? { ok: true, items: r.items || [] } : r;
 }
 
 export async function createAnnouncement(data) {
-  await latency();
-  const all = get(KEY);
-  const record = {
-    id: uid('ANN'),
-    created: new Date().toISOString(),
-    status: data.status || 'published',
-    attachment: data.attachment || null,
-    ...data,
-  };
-  all.unshift(record);
-  set(KEY, all);
-  // Phase 2: backend emits event -> WebSocket -> targeted students update live.
-  return { ok: true, data: record };
+  const r = await apiCall('/announcements', { method: 'POST', body: data });
+  return r.ok ? { ok: true, data: r.item } : r;
 }
 
 export async function updateAnnouncement(id, data) {
-  await latency();
-  const all = get(KEY);
-  const idx = all.findIndex((a) => a.id === id);
-  if (idx === -1) return { ok: false, error: 'Announcement not found.' };
-  all[idx] = { ...all[idx], ...data };
-  set(KEY, all);
-  return { ok: true, data: all[idx] };
+  const r = await apiCall(`/announcements/${encodeURIComponent(id)}`, { method: 'PATCH', body: data });
+  return r.ok ? { ok: true, data: r.item } : r;
 }
 
 export async function deleteAnnouncement(id) {
-  await latency();
-  set(KEY, get(KEY).filter((a) => a.id !== id));
-  return { ok: true };
-}
-
-/**
- * Return published announcements relevant to a given student profile.
- * Mirrors the targeting rules the backend will enforce later.
- */
-export async function getForStudent({ course, branch, semester }) {
-  await latency();
-  const published = get(KEY).filter((a) => a.status === 'published');
-  return published
-    .filter((a) => matchesAudience(a, { course, branch, semester }))
-    .sort((a, b) => new Date(b.created) - new Date(a.created));
-}
-
-export function matchesAudience(a, { course, branch, semester }) {
-  switch (a.audience) {
-    case 'All Students':
-      return true;
-    case 'B.Tech':
-      return course === 'B.Tech';
-    case 'Polytechnic':
-      return course === 'Polytechnic';
-    case 'Specific Branch':
-      return a.course === course && a.branch === branch;
-    case 'Specific Semester':
-      return a.course === course && a.branch === branch && Number(a.semester) === Number(semester);
-    default:
-      return false;
-  }
+  return apiCall(`/announcements/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

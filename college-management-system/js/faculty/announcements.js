@@ -2,7 +2,7 @@
  * faculty/announcements.js — Create / edit / delete / filter announcements.
  * Target audience selection dynamically reveals course/branch/semester fields.
  */
-import { COURSE_TYPES, BRANCHES, ANNOUNCEMENT_TYPES, TARGET_AUDIENCES, SEMESTER_STRUCTURE, DEMO_CONTENT } from '../config.js';
+import { COURSE_TYPES, BRANCHES, ANNOUNCEMENT_TYPES, TARGET_AUDIENCES } from '../config.js';
 import { $, $$, esc, formatDate, debounce } from '../common/dom.js';
 import { icon } from '../common/icons.js';
 import { statusBadge, typeBadge, emptyState, skeletonCards } from '../common/components.js';
@@ -14,14 +14,11 @@ import {
   getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement,
 } from '../services/announcementService.js';
 
-let FACULTY_ID;
 let all = [];
 
 bootstrapFaculty({ activeId: 'announcements', title: 'Announcements' }).then((ctx) => { if (ctx) init(ctx); });
 
 async function init({ main, user }) {
-  // Demo content owner — decoupled from the authenticated Firebase identity.
-  FACULTY_ID = DEMO_CONTENT.FACULTY_OWNER_ID;
   main.innerHTML = `
     <div class="page-head">
       <div>
@@ -53,7 +50,14 @@ async function init({ main, user }) {
 }
 
 async function load() {
-  all = await getAnnouncements({ facultyId: FACULTY_ID });
+  const host = $('#list');
+  host.innerHTML = skeletonCards(3);
+  const res = await getAnnouncements();
+  if (!res.ok) {
+    host.innerHTML = emptyState({ iconName: 'megaphone', title: 'Could not load announcements', message: res.error || 'Please try again.' });
+    return;
+  }
+  all = res.items || [];
   render();
 }
 
@@ -175,11 +179,6 @@ function openForm(editId) {
             <label class="form-label" for="eventDate">Event / holiday date</label>
             <input class="input" id="eventDate" name="eventDate" type="date" />
           </div>
-          <div class="form-group">
-            <label class="form-label" for="attachment">Attachment</label>
-            <input class="input" id="attachment" name="attachment" type="file" />
-            <div class="text-muted" style="font-size:var(--fs-xs);margin-top:4px">Stored via Firebase in Phase 2.</div>
-          </div>
         </div>
       </form>
     `,
@@ -237,7 +236,6 @@ function openForm(editId) {
 
     const aud = form.elements['audience'].value;
     const payload = {
-      facultyId: FACULTY_ID,
       title: form.elements['title'].value.trim(),
       type: form.elements['type'].value,
       audience: aud,
@@ -246,7 +244,6 @@ function openForm(editId) {
       course: form.elements['course']?.value || null,
       branch: form.elements['branch']?.value || null,
       semester: form.elements['semester']?.value ? Number(form.elements['semester'].value) : null,
-      attachment: form.elements['attachment']?.files?.[0]?.name || existing?.attachment || null,
       status,
     };
 
