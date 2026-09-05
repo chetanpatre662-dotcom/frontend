@@ -17,7 +17,7 @@ export const APP = {
   // Sub-brand / co-brand tag rendered as a refined badge next to the name.
   COLLEGE_SUB: 'SCEP',
   // Local college logo asset (app-root-relative; use resolvePath() for links).
-  COLLEGE_LOGO: './assets/images/college_logo.png',
+  COLLEGE_LOGO: '/assets/images/college_logo.png',
   VERSION: '1.0.0-frontend',
 };
 
@@ -28,7 +28,7 @@ export const APP = {
  * than the backend, so API_BASE_URL must be absolute for cross-origin calls.
  */
 export const ENV = {
-  API_BASE_URL: 'http://162.245.191.109:5000/api/faculty/dashboard',
+  API_BASE_URL: 'http://162.245.191.109:5000/api',
   AUTH_USE_BACKEND: true,
   WS_URL: '', // empty -> realtimeService derives ws(s)://host/ws from API_BASE_URL
 };
