@@ -45,6 +45,15 @@ async function requireAdmin(req, _res, next) {
       );
     }
 
+    // A pending/rejected admin (created via signup, not yet OTP/panel-approved)
+    // must NOT access protected admin APIs — even if they tamper with the
+    // frontend. Approval status is the server-side source of truth.
+    if (dbUser.status !== 'approved') {
+      return next(
+        new ApiError(403, 'Your admin account is pending approval.', { code: 'ADMIN_PENDING' })
+      );
+    }
+
     // Expose the verified DB admin to downstream handlers (e.g. self-delete guard).
     req.dbUser = dbUser;
     return next();

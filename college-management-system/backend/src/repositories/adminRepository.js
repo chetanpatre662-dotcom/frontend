@@ -26,7 +26,8 @@ async function getCounts() {
       (SELECT COUNT(*) FROM users WHERE role = 'admin')              AS admins,
       (SELECT COUNT(*) FROM faculty f
          JOIN users u ON u.id = f.user_id
-        WHERE u.role <> 'faculty')                                   AS pending_faculty
+        WHERE u.role <> 'faculty' OR u.status <> 'approved')         AS pending_faculty,
+      (SELECT COUNT(*) FROM users WHERE role = 'admin' AND status <> 'approved') AS pending_admins
   `);
   const r = rows[0] || {};
   return {
@@ -35,6 +36,7 @@ async function getCounts() {
     faculty: Number(r.faculty || 0),
     admins: Number(r.admins || 0),
     pendingFaculty: Number(r.pending_faculty || 0),
+    pendingAdmins: Number(r.pending_admins || 0),
   };
 }
 
@@ -45,7 +47,7 @@ async function getCounts() {
 async function listUsers() {
   const { rows } = await query(`
     SELECT
-      u.id, u.firebase_uid, u.email, u.display_name, u.role, u.created_at,
+      u.id, u.firebase_uid, u.email, u.display_name, u.role, u.status, u.created_at,
       s.id            AS student_id,
       s.roll_number   AS student_roll_number,
       s.full_name     AS student_full_name,
@@ -70,7 +72,7 @@ async function listUsers() {
 /** Find a single user row by primary key. */
 async function findById(id) {
   const { rows } = await query(
-    'SELECT id, firebase_uid, email, display_name, role, created_at FROM users WHERE id = $1',
+    'SELECT id, firebase_uid, email, display_name, role, status, created_at FROM users WHERE id = $1',
     [id]
   );
   return rows[0] || null;
@@ -86,8 +88,28 @@ async function hasFacultyProfile(userId) {
 async function updateRole(id, role) {
   const { rows } = await query(
     `UPDATE users SET role = $2 WHERE id = $1
-     RETURNING id, firebase_uid, email, display_name, role, created_at`,
+     RETURNING id, firebase_uid, email, display_name, role, status, created_at`,
     [id, role]
+  );
+  return rows[0] || null;
+}
+
+/** Update a user's role AND approval status together (approval transitions). */
+async function updateRoleAndStatus(id, role, status) {
+  const { rows } = await query(
+    `UPDATE users SET role = $2, status = $3 WHERE id = $1
+     RETURNING id, firebase_uid, email, display_name, role, status, created_at`,
+    [id, role, status]
+  );
+  return rows[0] || null;
+}
+
+/** Update only a user's approval status ('pending'|'approved'|'rejected'). */
+async function updateStatus(id, status) {
+  const { rows } = await query(
+    `UPDATE users SET status = $2 WHERE id = $1
+     RETURNING id, firebase_uid, email, display_name, role, status, created_at`,
+    [id, status]
   );
   return rows[0] || null;
 }
@@ -111,5 +133,7 @@ module.exports = {
   findById,
   hasFacultyProfile,
   updateRole,
+  updateRoleAndStatus,
+  updateStatus,
   deleteById,
 };

@@ -36,8 +36,12 @@ function yearFromSemester(program, semester) {
 function toUserView(row) {
   const hasStudent = row.student_id != null;
   const hasFaculty = row.faculty_id != null;
-  // Pending faculty = has a faculty profile but not yet promoted to 'faculty'.
-  const facultyPending = hasFaculty && row.role !== 'faculty';
+  const status = row.status || 'approved';
+  // Pending faculty = has a faculty profile but not yet fully approved
+  // (role promoted to 'faculty' AND status 'approved').
+  const facultyPending = hasFaculty && !(row.role === 'faculty' && status === 'approved');
+  const adminPending = row.role === 'admin' && status !== 'approved';
+  const isRejected = status === 'rejected';
 
   const view = {
     id: row.id,
@@ -45,13 +49,19 @@ function toUserView(row) {
     email: row.email,
     displayName: row.display_name,
     role: row.role,
+    status,
     createdAt: row.created_at,
     hasStudentProfile: hasStudent,
     hasFacultyProfile: hasFaculty,
     facultyPending,
+    adminPending,
+    isRejected,
     // Eligibility flags the UI can use (backend still re-enforces).
-    canApproveFaculty: hasFaculty && row.role === 'student',
+    // Approve a pending faculty applicant (faculty profile, not yet faculty/approved).
+    canApproveFaculty: hasFaculty && !(row.role === 'faculty' && status === 'approved') && row.role !== 'admin',
     canMakeAdmin: hasFaculty && row.role !== 'admin',
+    // Reject applies to any pending faculty/admin applicant.
+    canReject: (facultyPending || adminPending) && status !== 'rejected',
     student: null,
     faculty: null,
   };
@@ -123,18 +133,40 @@ async function approveFaculty(targetId) {
       code: 'NO_FACULTY_PROFILE',
     });
   }
-  if (target.role === 'faculty') {
-    // Idempotent-ish: already approved.
-    return { changed: false, user: target };
-  }
-  if (target.role !== 'student') {
-    // e.g. admin — don't silently downgrade/alter.
+  if (target.role === 'admin') {
+    // Don't silently downgrade/alter an admin via the faculty-approve path.
     throw new ApiError(409, `Cannot approve a user with role '${target.role}'.`, {
       code: 'INVALID_ROLE_TRANSITION',
     });
   }
+  if (target.role === 'faculty' && target.status === 'approved') {
+    // Idempotent: already fully approved.
+    return { changed: false, user: target };
+  }
 
-  const updated = await adminRepository.updateRole(target.id, 'faculty');
+  // Approve = promote to faculty AND set status approved (works whether the
+  // applicant was role 'student' pending or role 'faculty' status 'pending').
+  const updated = await adminRepository.updateRoleAndStatus(target.id, 'faculty', 'approved');
+  return { changed: true, user: updated };
+}
+
+/**
+ * Reject a pending faculty/admin applicant: status -> 'rejected'. Does not
+ * delete the account or change the role. Only pending applicants can be
+ * rejected (an already-approved user must be demoted/deleted instead).
+ */
+async function rejectUser(targetId, requester) {
+  const target = await requireTarget(targetId);
+  if (requester && Number(target.id) === Number(requester.id)) {
+    throw new ApiError(400, 'You cannot reject your own account.', { code: 'SELF_REJECT_FORBIDDEN' });
+  }
+  const hasFaculty = await adminRepository.hasFacultyProfile(target.id);
+  const isPendingFaculty = hasFaculty && !(target.role === 'faculty' && target.status === 'approved') && target.role !== 'admin';
+  const isPendingAdmin = target.role === 'admin' && target.status !== 'approved';
+  if (!isPendingFaculty && !isPendingAdmin) {
+    throw new ApiError(409, 'Only a pending faculty or admin applicant can be rejected.', { code: 'NOT_PENDING' });
+  }
+  const updated = await adminRepository.updateStatus(target.id, 'rejected');
   return { changed: true, user: updated };
 }
 
@@ -151,11 +183,12 @@ async function makeAdmin(targetId) {
       code: 'NOT_FACULTY',
     });
   }
-  if (target.role === 'admin') {
+  if (target.role === 'admin' && target.status === 'approved') {
     return { changed: false, user: target };
   }
 
-  const updated = await adminRepository.updateRole(target.id, 'admin');
+  // Promotion via the admin panel grants admin AND approves in one step.
+  const updated = await adminRepository.updateRoleAndStatus(target.id, 'admin', 'approved');
   return { changed: true, user: updated };
 }
 
@@ -192,7 +225,8 @@ async function removeAdmin(targetId, requester) {
     });
   }
 
-  const updated = await adminRepository.updateRole(target.id, 'faculty');
+  // Revert to an APPROVED faculty (they were an approved admin).
+  const updated = await adminRepository.updateRoleAndStatus(target.id, 'faculty', 'approved');
   return { changed: true, user: updated };
 }
 
@@ -243,4 +277,4 @@ async function deleteUser(targetId, requester) {
   };
 }
 
-module.exports = { getStats, listUsers, approveFaculty, makeAdmin, removeAdmin, deleteUser, toUserView };
+module.exports = { getStats, listUsers, approveFaculty, rejectUser, makeAdmin, removeAdmin, deleteUser, toUserView };

@@ -31,6 +31,21 @@ function toList(value) {
     .filter(Boolean);
 }
 
+/**
+ * Normalize a phone number to a comparable E.164-ish form: strip spaces,
+ * hyphens, parentheses; keep a single leading '+'. Returns '' when empty.
+ * Used only for server-side comparison of a verified phone against config —
+ * never sent to the frontend.
+ */
+function normalizePhone(value) {
+  if (!value) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  const hasPlus = raw.startsWith('+');
+  const digits = raw.replace(/[^\d]/g, '');
+  return (hasPlus ? '+' : '') + digits;
+}
+
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 const env = {
@@ -76,6 +91,13 @@ const env = {
     // Firebase Cloud Storage bucket (e.g. college-94cd7.firebasestorage.app).
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET || '',
   },
+
+  // ---- Bootstrap Admin (first-admin OTP approval) ----
+  // Verified phone allowed to approve the FIRST admin when none exists yet.
+  // SECRET-ISH config: kept server-side only, never returned to the frontend.
+  bootstrap: {
+    adminPhone: normalizePhone(process.env.BOOTSTRAP_ADMIN_PHONE || ''),
+  },
 };
 
 /** True when all three Firebase Admin credentials are present. */
@@ -86,4 +108,7 @@ env.firebase.isConfigured = Boolean(
 /** True when either a connection string or a DB name+host is available. */
 env.db.isConfigured = Boolean(env.db.connectionString || (env.db.host && env.db.name));
 
-module.exports = { env, toBool, toList };
+/** Whether a bootstrap admin phone is configured (server-side only). */
+env.bootstrap.isConfigured = Boolean(env.bootstrap.adminPhone);
+
+module.exports = { env, toBool, toList, normalizePhone };

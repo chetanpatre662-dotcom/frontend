@@ -21,6 +21,7 @@ import {
   sendPasswordReset,
   isFirebaseConfigured,
 } from '../services/authService.js';
+import { renderPendingApproval } from './pendingApproval.js';
 
 /**
  * Map the backend (PostgreSQL) role to its dashboard route. The DB role — NOT
@@ -34,6 +35,38 @@ function dashboardForRole(role, fallbackUrl) {
     case 'student': return ROUTES.STUDENT.DASHBOARD;
     default: return fallbackUrl;
   }
+}
+
+/**
+ * Handle post-login routing with status awareness.
+ * Pending faculty/admin → show OTP approval screen inline.
+ * Approved users → redirect to dashboard.
+ */
+function routeAfterLogin(profile, cfg, restore) {
+  const role = profile?.role;
+  const status = profile?.status;
+
+  // Pending or rejected — don't redirect to a dashboard.
+  if ((role === 'faculty' || role === 'admin') && status === 'pending') {
+    if (restore) restore();
+    showPendingScreen(profile, cfg);
+    return;
+  }
+  if ((role === 'faculty' || role === 'admin') && status === 'rejected') {
+    if (restore) restore();
+    toastError('Your account has been rejected. Please contact an administrator.');
+    return;
+  }
+  redirect(dashboardForRole(role, cfg.dashboardUrl));
+}
+
+function showPendingScreen(profile, cfg) {
+  const card = document.querySelector('.auth-card');
+  if (!card) { toastInfo('Your account is pending approval.'); return; }
+  const role = profile?.role;
+  const dashboardUrl = resolvePath(role === 'admin' ? ROUTES.ADMIN.DASHBOARD : ROUTES.FACULTY.DASHBOARD);
+  const pillColor = role === 'admin' ? '#6d28d9' : '#0284c7';
+  renderPendingApproval(card, { role, dashboardUrl, rolePillColor: pillColor });
 }
 
 /**
@@ -91,7 +124,7 @@ export function initLoginPage(cfg) {
 
     if (result.ok) {
       toastSuccess('Signed in successfully.');
-      redirect(dashboardForRole(result.profile?.role, cfg.dashboardUrl));
+      routeAfterLogin(result.profile, cfg, restore);
     } else {
       restore();
       if (googleBtn) googleBtn.disabled = false;
@@ -108,7 +141,7 @@ export function initLoginPage(cfg) {
 
     if (result.ok) {
       toastSuccess('Signed in with Google.');
-      redirect(dashboardForRole(result.profile?.role, cfg.dashboardUrl));
+      routeAfterLogin(result.profile, cfg, () => { submitBtn.disabled = false; restore(); });
     } else {
       restore();
       submitBtn.disabled = false;

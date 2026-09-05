@@ -243,20 +243,16 @@ function enterProfileCompletionMode(form, result, isStudent) {
   first?.focus();
 }
 
-/** Replace the form with a simple "faculty approval pending" message. */
-function showFacultyPending(form) {
+/** Replace the form with the shared "pending approval" OTP screen. */
+async function showFacultyPending(form) {
   const card = form.closest('.auth-card') || form.parentElement;
   if (!card) { redirect(ROUTES.FACULTY.LOGIN); return; }
-  card.innerHTML = `
-    <span class="role-pill">${icon('user')} Faculty</span>
-    <h2>Approval pending</h2>
-    <p class="auth-desc">Thanks — your faculty profile has been submitted.</p>
-    <p class="text-muted" style="margin:12px 0 20px">
-      A college administrator needs to approve your faculty access before you can
-      open the faculty dashboard. You'll be able to sign in once approved.
-    </p>
-    <a class="btn btn-primary btn-block" href="login.html">Back to sign in</a>
-  `;
+  const { renderPendingApproval } = await import('./pendingApproval.js');
+  renderPendingApproval(card, {
+    role: 'faculty',
+    dashboardUrl: resolvePath(ROUTES.FACULTY.DASHBOARD),
+    rolePillColor: '#0284c7',
+  });
 }
 
 /* ------------------------------------------------------------------ */

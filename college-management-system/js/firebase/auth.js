@@ -25,6 +25,8 @@ import {
   setPersistence,
   browserLocalPersistence,
   browserSessionPersistence,
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
 } from 'https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js';
 
 import { auth, googleProvider, isFirebaseConfigured } from './firebase-config.js';
@@ -87,4 +89,76 @@ export async function getIdToken(forceRefresh = false) {
  */
 export function watchAuthState(callback) {
   return onAuthStateChanged(auth, callback);
+}
+
+/* ------------------------------------------------------------------ */
+/* Phone OTP (approval flow)                                           */
+/* ------------------------------------------------------------------ */
+/**
+ * Phone OTP is used ONLY to prove possession of an approver's / bootstrap
+ * phone during account approval. It runs on a SEPARATE, isolated Firebase app
+ * instance so it never disturbs the primary session (the pending applicant
+ * stays signed in on `auth`). The resulting phone-auth ID token is sent to the
+ * backend, which re-verifies it and compares the verified phone_number against
+ * the selected approver's DB phone (or the configured bootstrap phone).
+ *
+ * The applicant NEVER supplies a phone number to the backend — only the
+ * approver's id + the phone-auth token.
+ */
+let _otpApp = null;
+let _otpAuth = null;
+
+async function getOtpAuth() {
+  if (_otpAuth) return _otpAuth;
+  const { initializeApp, getApps } = await import('https://www.gstatic.com/firebasejs/11.6.0/firebase-app.js');
+  const { getAuth } = await import('https://www.gstatic.com/firebasejs/11.6.0/firebase-auth.js');
+  const { firebaseConfig } = await import('./firebase-config.js');
+  const NAME = 'otp-approval';
+  const existing = getApps().find((a) => a.name === NAME);
+  _otpApp = existing || initializeApp(firebaseConfig, NAME);
+  _otpAuth = getAuth(_otpApp);
+  return _otpAuth;
+}
+
+/**
+ * Build an invisible reCAPTCHA verifier bound to a container element id.
+ * Firebase requires an App Check / reCAPTCHA for phone auth.
+ * @param {string} containerId - id of an (empty) DOM element
+ * @returns {Promise<RecaptchaVerifier>}
+ */
+export async function makeRecaptcha(containerId) {
+  const otpAuth = await getOtpAuth();
+  const verifier = new RecaptchaVerifier(otpAuth, containerId, { size: 'invisible' });
+  await verifier.render();
+  return verifier;
+}
+
+/**
+ * Send an OTP to a phone number (E.164). Returns a confirmation handle whose
+ * .confirm(code) resolves to a phone-auth credential. The phone number here is
+ * NOT chosen by the user — the caller passes the selected approver's number
+ * that the BACKEND already validated/returned context for. (In this app the
+ * backend re-verifies the resulting token against the approver's DB phone, so
+ * even a tampered number cannot approve an account.)
+ * @param {string} e164Phone
+ * @param {RecaptchaVerifier} verifier
+ */
+export async function sendPhoneOtp(e164Phone, verifier) {
+  const otpAuth = await getOtpAuth();
+  return signInWithPhoneNumber(otpAuth, e164Phone, verifier);
+}
+
+/**
+ * Confirm the OTP code and return the phone-auth ID token (to send to the
+ * backend). Signs OUT of the isolated OTP app immediately afterwards so no
+ * lingering phone session remains. The primary `auth` session is untouched.
+ * @param {import('firebase/auth').ConfirmationResult} confirmation
+ * @param {string} code
+ * @returns {Promise<string>} phone-auth ID token
+ */
+export async function confirmPhoneOtp(confirmation, code) {
+  const cred = await confirmation.confirm(code);
+  const token = await cred.user.getIdToken();
+  try { await getOtpAuth().then((a) => a.signOut()); } catch { /* ignore */ }
+  return token;
 }

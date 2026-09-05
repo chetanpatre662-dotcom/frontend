@@ -19,7 +19,7 @@ const { query } = require('../config/database');
 
 // Columns returned to callers — keep this stable so services/routes have a
 // predictable shape and we never accidentally leak added internal columns.
-const RETURNING = 'id, firebase_uid, email, display_name, role, created_at, updated_at';
+const RETURNING = 'id, firebase_uid, email, display_name, role, status, phone, phone_verified, created_at, updated_at';
 
 /**
  * Find a user by their Firebase UID.
@@ -81,4 +81,75 @@ async function upsertByFirebaseUid({ firebaseUid, email = null, displayName = nu
   return rows[0];
 }
 
-module.exports = { findByFirebaseUid, insertUser, upsertByFirebaseUid };
+/** Find a user by primary key. */
+async function findById(id) {
+  const { rows } = await query(`SELECT ${RETURNING} FROM users WHERE id = $1`, [id]);
+  return rows[0] || null;
+}
+
+/**
+ * Set a user's account status ('pending' | 'approved' | 'rejected').
+ * Returns the updated row.
+ */
+async function updateStatus(id, status) {
+  const { rows } = await query(
+    `UPDATE users SET status = $2 WHERE id = $1 RETURNING ${RETURNING}`,
+    [id, status]
+  );
+  return rows[0] || null;
+}
+
+/** Set a user's role AND status in one update (used by admin promotions). */
+async function updateRoleAndStatus(id, role, status) {
+  const { rows } = await query(
+    `UPDATE users SET role = $2, status = $3 WHERE id = $1 RETURNING ${RETURNING}`,
+    [id, role, status]
+  );
+  return rows[0] || null;
+}
+
+/** Record a user's verified phone (server-side; set after phone-auth verify). */
+async function setVerifiedPhone(id, phone) {
+  const { rows } = await query(
+    `UPDATE users SET phone = $2, phone_verified = TRUE WHERE id = $1 RETURNING ${RETURNING}`,
+    [id, phone]
+  );
+  return rows[0] || null;
+}
+
+/** Count users matching a role + status (e.g. approved admins). */
+async function countByRoleStatus(role, status) {
+  const { rows } = await query(
+    'SELECT COUNT(*)::int AS n FROM users WHERE role = $1 AND status = $2',
+    [role, status]
+  );
+  return rows[0].n;
+}
+
+/**
+ * List eligible OTP approvers: role='admin' AND status='approved' AND a
+ * non-empty phone. Returns ONLY id + phone (caller masks the phone). Never
+ * expose the raw phone beyond the service layer.
+ */
+async function listApprovedAdminsWithPhone() {
+  const { rows } = await query(
+    `SELECT id, display_name, email, phone
+       FROM users
+      WHERE role = 'admin' AND status = 'approved'
+        AND phone IS NOT NULL AND phone <> ''
+      ORDER BY id ASC`
+  );
+  return rows;
+}
+
+module.exports = {
+  findByFirebaseUid,
+  findById,
+  insertUser,
+  upsertByFirebaseUid,
+  updateStatus,
+  updateRoleAndStatus,
+  setVerifiedPhone,
+  countByRoleStatus,
+  listApprovedAdminsWithPhone,
+};

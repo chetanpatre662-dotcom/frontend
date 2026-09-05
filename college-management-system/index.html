@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>College Management System</title>
-  <meta name="description" content="A unified portal for faculty, students and administration." />
+  <title>Askbook · SCEP College Management</title>
+  <meta name="description" content="Askbook — the unified portal for faculty, students and administration at Satpuda College of Engineering and Polytechnic (SCEP)." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -26,11 +26,18 @@
     .landing-nav .brand { display: flex; align-items: center; gap: var(--sp-3); }
     .landing-nav .brand .logo {
       width: 46px; height: 46px; border-radius: 12px;
-      background: var(--brand-900); display: grid; place-items: center;
+      background: transparent; display: grid; place-items: center;
+      overflow: hidden;
     }
+    .landing-nav .brand .logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
     .landing-nav .brand .logo svg { width: 28px; height: 28px; max-width: 28px; max-height: 28px; color: var(--accent-500); }
-    .landing-nav .brand .name { font-weight: 700; color: var(--brand-900); line-height: 1.15; }
+    .landing-nav .brand .name { font-weight: 700; color: var(--brand-900); line-height: 1.1; font-size: 1.1rem; }
     .landing-nav .brand .sub { font-size: var(--fs-xs); color: var(--text-muted); }
+    .landing-nav .brand .scep-tag {
+      display: inline-block; font-size: 9px; font-weight: 700; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--brand-600); background: var(--brand-50);
+      border: 1px solid var(--brand-200,#bfdbfe); padding: 1px 6px; border-radius: 999px; margin-left: 6px; vertical-align: middle;
+    }
 
     .landing-main {
       flex: 1;
@@ -96,12 +103,11 @@
       <div class="brand">
         <div class="logo" id="navLogo"></div>
         <div>
-          <div class="name" id="collegeName">College</div>
-          <div class="sub">College Management System</div>
+          <div class="name" id="collegeName">Askbook<span class="scep-tag">SCEP</span></div>
+          <div class="sub" id="collegeSub">Satpuda College of Engineering and Polytechnic</div>
         </div>
       </div>
     </nav>
-
     <main class="landing-main">
       <span class="landing-badge" id="badge"></span>
       <h1>One portal for your entire <span class="accent">engineering campus</span></h1>
@@ -117,11 +123,20 @@
     import { APP, ROUTES, resolvePath } from './js/config.js';
     import { icon } from './js/common/icons.js';
 
-    document.getElementById('navLogo').innerHTML = icon('logo');
-    document.getElementById('collegeName').textContent = APP.COLLEGE_SHORT;
+    // Use the real college logo asset instead of the SVG icon.
+    const logoEl = document.getElementById('navLogo');
+    const logoImg = document.createElement('img');
+    logoImg.src = APP.COLLEGE_LOGO;
+    logoImg.alt = APP.COLLEGE_NAME + ' logo';
+    logoImg.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
+    logoEl.appendChild(logoImg);
+
+    // Dynamic names (already set in HTML but update via config for consistency)
+    document.getElementById('collegeName').firstChild.textContent = APP.COLLEGE_SHORT;
+    document.getElementById('collegeSub').textContent = 'Satpuda College of Engineering and Polytechnic';
     document.getElementById('badge').innerHTML = icon('shield') + ' Secure role-based access';
     document.getElementById('foot').textContent =
-      `${APP.COLLEGE_NAME} · ${APP.NAME} v${APP.VERSION}`;
+      `${APP.COLLEGE_NAME} · SCEP · ${APP.NAME} v${APP.VERSION}`;
 
     const roles = [
       { key: 'faculty', title: 'Faculty', icon: 'user', href: ROUTES.FACULTY.LOGIN,

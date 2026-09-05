@@ -188,3 +188,19 @@
   color: var(--warning-600);
 }
 .setup-note strong { display: block; margin-bottom: 2px; }
+
+/* ---- Pending Approval Screen (inside .auth-card) ---- */
+.pending-options { display: flex; flex-direction: column; gap: 12px; margin-top: 4px; }
+.pending-opt {
+  border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+  background: var(--white);
+}
+.pending-opt-head { display: flex; align-items: flex-start; gap: 12px; }
+.pending-opt-icon { flex-shrink: 0; }
+.pending-opt-icon svg { width: 20px; height: 20px; color: var(--brand-600); }
+.pending-opt-title { font-weight: 600; font-size: var(--fs-sm); color: var(--gray-900); }
+.pending-opt-sub { font-size: var(--fs-xs); color: var(--text-muted); margin-top: 2px; }
+.pending-divider { text-align: center; color: var(--text-muted); font-size: var(--fs-xs); margin: 4px 0; }
+.approver-option { cursor: pointer; }
+.approver-option:hover { border-color: var(--brand-400) !important; }
+#recaptcha-container { min-height: 0; }

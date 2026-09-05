@@ -19,7 +19,7 @@ import { emptyState, skeletonCards, paginationBar } from '../common/components.j
 import { confirmDialog } from '../common/modal.js';
 import { toastSuccess, toastError } from '../common/toast.js';
 import { bootstrapAdmin } from './nav.js';
-import { getAdminUsers, approveFaculty, makeAdmin, deleteUser } from '../services/adminService.js';
+import { getAdminUsers, approveFaculty, makeAdmin, rejectUser, deleteUser } from '../services/adminService.js';
 
 const PAGE_SIZE = 6;
 let all = [];        // users with a faculty profile
@@ -42,8 +42,10 @@ async function init({ main, user }) {
         <input class="input search" id="searchInput" type="search" placeholder="Search name, email or department…" />
         <select id="fStatus"><option value="">All</option>
           <option value="pending">Pending approval</option>
+          <option value="pending-admin">Pending admin</option>
           <option value="faculty">Approved faculty</option>
-          <option value="admin">Admins</option></select>
+          <option value="admin">Admins</option>
+          <option value="rejected">Rejected</option></select>
       </div>
     </div></div>
     <div class="card"><div class="card-body"><div id="tableArea">${skeletonCards(1)}</div></div></div>
@@ -66,15 +68,16 @@ async function load() {
     }
     return;
   }
-  // Faculty page scope: only users who have a faculty profile.
-  all = (res.users || []).filter((u) => u.hasFacultyProfile);
+  all = (res.users || []).filter((u) => u.hasFacultyProfile || u.role === 'admin' || u.adminPending);
   render();
 }
 
 function statusOf(u) {
-  if (u.role === 'admin') return 'admin';
-  if (u.role === 'faculty') return 'faculty';
-  return 'pending'; // has faculty profile but role still 'student'
+  if (u.isRejected) return 'rejected';
+  if (u.role === 'admin' && u.status === 'approved') return 'admin';
+  if (u.adminPending) return 'pending-admin';
+  if (u.role === 'faculty' && u.status === 'approved') return 'faculty';
+  return 'pending'; // has faculty profile but not yet fully approved
 }
 
 function getFiltered() {
@@ -110,7 +113,9 @@ function render() {
   `;
 
   $$('[data-approve]', host).forEach((b) => b.addEventListener('click', () => onApprove(b.dataset.approve)));
+  $$('[data-approve-admin]', host).forEach((b) => b.addEventListener('click', () => onApproveAdmin(b.dataset.approveAdmin)));
   $$('[data-makeadmin]', host).forEach((b) => b.addEventListener('click', () => onMakeAdmin(b.dataset.makeadmin)));
+  $$('[data-reject]', host).forEach((b) => b.addEventListener('click', () => onReject(b.dataset.reject)));
   $$('[data-delete]', host).forEach((b) => b.addEventListener('click', () => onDelete(b.dataset.delete)));
   $$('.page-btn', host).forEach((b) => b.addEventListener('click', () => {
     const p = Number(b.dataset.page);
@@ -122,8 +127,10 @@ function statusBadgeFor(u) {
   const s = statusOf(u);
   const map = {
     pending: '<span class="badge" style="background:var(--warning-100,#fef3c7);color:var(--warning-700,#b45309)">Pending approval</span>',
+    'pending-admin': '<span class="badge" style="background:#ede9fe;color:#6d28d9">Pending admin</span>',
     faculty: '<span class="badge" style="background:var(--success-100,#dcfce7);color:var(--success-700,#15803d)">Faculty</span>',
     admin: '<span class="badge" style="background:#ede9fe;color:#6d28d9">Admin</span>',
+    rejected: '<span class="badge" style="background:var(--error-100,#fee2e2);color:var(--error-700,#b91c1c)">Rejected</span>',
   };
   return map[s] || esc(s);
 }
@@ -137,8 +144,15 @@ function rowHTML(u) {
   if (u.canApproveFaculty) {
     actions.push(`<button class="btn btn-sm btn-primary" data-approve="${u.id}">${icon('check')} Approve</button>`);
   }
+  if (u.adminPending && !u.isRejected) {
+    // Approve a pending admin via the admin panel.
+    actions.push(`<button class="btn btn-sm btn-primary" data-approve-admin="${u.id}">${icon('check')} Approve Admin</button>`);
+  }
   if (u.canMakeAdmin) {
     actions.push(`<button class="btn btn-sm btn-outline" data-makeadmin="${u.id}">${icon('shield')} Make Admin</button>`);
+  }
+  if (u.canReject) {
+    actions.push(`<button class="btn btn-sm" data-reject="${u.id}" style="background:var(--error-100,#fee2e2);color:var(--error-700,#b91c1c)">${icon('xCircle')} Reject</button>`);
   }
   // Self-delete protection: never render a delete button for the logged-in admin.
   if (!isSelf) {
@@ -172,6 +186,37 @@ async function onApprove(id) {
   const res = await approveFaculty(id);
   if (!res.ok) return toastError(res.error || 'Could not approve faculty.');
   toastSuccess('Faculty approved.');
+  await load();
+}
+
+async function onApproveAdmin(id) {
+  const u = all.find((x) => String(x.id) === String(id));
+  const name = u?.displayName || u?.email || 'this admin';
+  const ok = await confirmDialog({
+    title: 'Approve admin?',
+    message: `${name} will be granted approved administrator access.`,
+    confirmLabel: 'Approve',
+  });
+  if (!ok) return;
+  // Approve admin via the make-admin route (sets role=admin + status=approved).
+  const res = await makeAdmin(id);
+  if (!res.ok) return toastError(res.error || 'Could not approve admin.');
+  toastSuccess('Admin approved.');
+  await load();
+}
+
+async function onReject(id) {
+  const u = all.find((x) => String(x.id) === String(id));
+  const name = u?.faculty?.fullName || u?.displayName || u?.email || 'this user';
+  const ok = await confirmDialog({
+    title: 'Reject applicant?',
+    message: `${name}'s application will be rejected. They will not be able to access their dashboard.`,
+    confirmLabel: 'Reject',
+  });
+  if (!ok) return;
+  const res = await rejectUser(id);
+  if (!res.ok) return toastError(res.error || 'Could not reject applicant.');
+  toastSuccess('Applicant rejected.');
   await load();
 }
 

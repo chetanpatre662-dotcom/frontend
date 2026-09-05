@@ -61,22 +61,25 @@ export async function requireAuth(loginUrl) {
  */
 export async function resolveProfile() {
   const cached = getSessionProfile();
-  if (cached && cached.role) return cached;
+  // Ensure we have a profile with the 'status' field (added in this release).
+  // If cached profile is missing 'status', force a fresh sync.
+  if (cached && cached.role && cached.status) return cached;
   const res = await syncProfile();
   return res.ok ? res.profile : null;
 }
 
 /**
- * Require an authenticated user whose DB role matches `expectedRole`.
- * Redirects unauthenticated users to loginUrl. If authenticated but the role
- * does not match, redirects to `unauthorizedUrl` (defaults to loginUrl).
+ * Require an authenticated user whose DB role matches `expectedRole` AND whose
+ * account status is 'approved'. Pending/rejected users are redirected to
+ * `pendingUrl` (if supplied) instead of the login page.
  *
  * @param {string} expectedRole 'student' | 'faculty' | 'admin'
  * @param {string} loginUrl resolved login URL for unauthenticated users
  * @param {string} [unauthorizedUrl] where to send role-mismatched users
+ * @param {string} [pendingUrl] where to send pending/rejected users (defaults to loginUrl)
  * @returns {Promise<object|null>} the backend profile if authorized, else null
  */
-export async function requireRole(expectedRole, loginUrl, unauthorizedUrl) {
+export async function requireRole(expectedRole, loginUrl, unauthorizedUrl, pendingUrl) {
   const identity = await waitForAuth();
   if (!identity) {
     window.location.replace(loginUrl);
@@ -85,6 +88,11 @@ export async function requireRole(expectedRole, loginUrl, unauthorizedUrl) {
   const profile = await resolveProfile();
   if (!profile || profile.role !== expectedRole) {
     window.location.replace(unauthorizedUrl || loginUrl);
+    return null;
+  }
+  // Students are always approved; faculty/admin must be approved too.
+  if (expectedRole !== 'student' && profile.status && profile.status !== 'approved') {
+    window.location.replace(pendingUrl || loginUrl);
     return null;
   }
   return profile;

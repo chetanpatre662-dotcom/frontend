@@ -81,6 +81,21 @@ router.patch('/users/:id/make-admin', async (req, res, next) => {
   }
 });
 
+/** PATCH /api/admin/users/:id/reject — mark a pending faculty/admin applicant rejected. */
+router.patch('/users/:id/reject', async (req, res, next) => {
+  try {
+    const result = await adminService.rejectUser(req.params.id, req.dbUser);
+    res.status(200).json({
+      success: true,
+      message: result.changed ? 'Applicant rejected.' : 'No change.',
+      changed: result.changed,
+      user: result.user,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** PATCH /api/admin/users/:id/remove-admin — admin -> faculty (no delete). */
 router.patch('/users/:id/remove-admin', async (req, res, next) => {
   try {

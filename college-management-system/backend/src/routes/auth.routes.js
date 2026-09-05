@@ -32,6 +32,7 @@ function toProfile(user) {
     email: user.email,
     displayName: user.display_name,
     role: user.role,
+    status: user.status,
     createdAt: user.created_at,
     updatedAt: user.updated_at,
   };

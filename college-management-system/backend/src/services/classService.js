@@ -56,6 +56,10 @@ async function requireFaculty(user) {
   if (user.role !== 'faculty' && user.role !== 'admin') {
     throw new ApiError(403, 'Only faculty can create classes.', { code: 'FACULTY_REQUIRED' });
   }
+  // A pending/rejected faculty (or admin) must be approved before acting.
+  if (user.status && user.status !== 'approved') {
+    throw new ApiError(403, 'Your account is pending approval.', { code: 'ACCOUNT_PENDING' });
+  }
   const faculty = await facultyRepository.findByUserId(user.id);
   if (!faculty) {
     throw new ApiError(409, 'Your faculty profile is incomplete. Please complete it first.', {

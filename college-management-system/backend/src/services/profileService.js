@@ -132,6 +132,21 @@ async function saveFacultyProfile(firebaseUid, input = {}) {
     designation,
   });
 
+  // Mark the account as pending approval (explicit status model). The ROLE is
+  // intentionally left as-is (Option A: stays 'student' until an admin/ OTP
+  // approval promotes it to 'faculty'), which keeps the existing admin-panel
+  // pending detection working. Never downgrade an already-approved faculty.
+  if (user.status !== 'approved' || user.role !== 'faculty') {
+    try {
+      if (user.status !== 'pending' && user.role !== 'faculty') {
+        await userRepository.updateStatus(user.id, 'pending');
+      }
+    } catch (e) {
+      // Non-fatal: the profile is saved; status default remains.
+      console.debug('[profile] could not set faculty pending status:', e.message);
+    }
+  }
+
   return profile;
 }
 
@@ -154,10 +169,14 @@ async function getProfileStatus(firebaseUid) {
 
   return {
     role: user.role, // server-owned source of truth
+    status: user.status, // 'pending' | 'approved' | 'rejected'
     hasStudentProfile: Boolean(student),
     hasFacultyProfile: Boolean(faculty),
-    // A faculty applicant is "pending" until an admin promotes their role.
-    facultyPending: Boolean(faculty) && user.role !== 'faculty',
+    // A faculty applicant is "pending" until approved (role promoted to faculty
+    // AND status approved). Approval happens via admin panel OR OTP.
+    facultyPending: Boolean(faculty) && !(user.role === 'faculty' && user.status === 'approved'),
+    // An admin applicant is "pending" until status is approved.
+    adminPending: user.role === 'admin' && user.status !== 'approved',
     student: student || null,
     faculty: faculty || null,
   };

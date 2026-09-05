@@ -21,6 +21,7 @@ const classRoutes = require('./class.routes');
 const announcementRoutes = require('./announcement.routes');
 const notificationRoutes = require('./notification.routes');
 const portalRoutes = require('./portal.routes');
+const approvalRoutes = require('./approval.routes');
 
 const router = express.Router();
 
@@ -36,5 +37,6 @@ router.use('/', classRoutes);
 router.use('/', announcementRoutes);
 router.use('/', notificationRoutes);
 router.use('/', portalRoutes);
+router.use('/', approvalRoutes);
 
 module.exports = router;

@@ -90,6 +90,18 @@ export async function removeAdmin(userId) {
   }
 }
 
+/** PATCH /api/admin/users/:id/reject — reject a pending faculty/admin applicant. */
+export async function rejectUser(userId) {
+  const { token, error } = await withToken();
+  if (error) return error;
+  try {
+    const res = await authedRequest(`/admin/users/${encodeURIComponent(userId)}/reject`, token, { method: 'PATCH' });
+    return { ok: true, changed: res?.changed, user: res?.user, message: res?.message };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'Could not reject applicant.', status: e?.status };
+  }
+}
+
 /** DELETE /api/admin/users/:id — delete user (PostgreSQL + Firebase Auth). */
 export async function deleteUser(userId) {
   const { token, error } = await withToken();
