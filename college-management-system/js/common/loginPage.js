@@ -80,6 +80,13 @@ export function initLoginPage(cfg) {
 
   warnIfUnconfigured();
 
+  // If redirected here with ?pending=1, the user is already signed in but
+  // their account is pending/rejected — show the pending screen immediately
+  // without requiring them to re-enter credentials.
+  if (new URLSearchParams(window.location.search).get('pending') === '1') {
+    _checkAndShowPendingOnLoad(cfg);
+  }
+
   // --- Password visibility toggle ---
   const toggle = $('#togglePw');
   const pw = form.elements['password'];
@@ -213,5 +220,55 @@ function openForgotPassword(prefillEmail = '') {
     } else {
       toastError(result.error || 'Could not send reset email.');
     }
+  }
+}
+
+/**
+ * Called when login.html is loaded with ?pending=1 (redirected from a
+ * dashboard guard). The user is already signed in — sync their profile and
+ * show the pending/rejected screen without requiring re-login.
+ */
+async function _checkAndShowPendingOnLoad(cfg) {
+  const { syncProfile } = await import('../services/authService.js');
+  const { renderPendingApproval } = await import('./pendingApproval.js');
+
+  const sync = await syncProfile(true);
+  if (!sync.ok || !sync.profile) return; // not signed in — let the normal form handle it
+
+  const profile = sync.profile;
+  const role = profile.role;
+  const status = profile.status;
+
+  // Already approved — just redirect to the correct dashboard.
+  if (status === 'approved') {
+    redirect(dashboardForRole(role, cfg.dashboardUrl));
+    return;
+  }
+
+  // Rejected: show a clear message, no OTP option.
+  if (status === 'rejected') {
+    const card = document.querySelector('.auth-card');
+    if (card) {
+      card.innerHTML = `
+        <h2 style="color:var(--error-600,#dc2626)">Account Rejected</h2>
+        <p class="auth-desc">Your account has been rejected by an administrator.</p>
+        <p class="text-muted" style="margin:12px 0 20px">
+          If you believe this is a mistake, please contact the college administrator directly.
+        </p>
+        <a class="btn btn-primary btn-block" href="${resolvePath(cfg.dashboardUrl).split('?')[0]}">
+          Back to sign in
+        </a>
+      `;
+    }
+    return;
+  }
+
+  // Pending: show the full pending approval screen.
+  if (status === 'pending') {
+    const card = document.querySelector('.auth-card');
+    if (!card) return;
+    const dashboardUrl = resolvePath(role === 'admin' ? ROUTES.ADMIN.DASHBOARD : ROUTES.FACULTY.DASHBOARD);
+    const pillColor = role === 'admin' ? '#6d28d9' : '#0284c7';
+    renderPendingApproval(card, { role, dashboardUrl, rolePillColor: pillColor });
   }
 }

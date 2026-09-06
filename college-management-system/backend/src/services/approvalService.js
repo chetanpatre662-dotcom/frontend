@@ -107,15 +107,17 @@ async function listApprovers(dbUser) {
   const admins = await userRepository.listApprovedAdminsWithPhone();
   const count = await approvedAdminCount();
 
-  // Bootstrap applies ONLY to a pending admin when zero approved admins exist
-  // AND a bootstrap phone is configured server-side.
+  // Bootstrap is available whenever the bootstrap phone is configured —
+  // regardless of how many approved admins already exist. This lets the
+  // bootstrap number act as a permanent super-approver for all new admins.
+  // Security: the backend still validates the OTP proof against the exact
+  // bootstrap phone at final approval time (resolveApproverPhone / approveWithOtp).
   const bootstrapAvailable =
-    applicantType === 'pending_admin' && count === 0 && env.bootstrap.isConfigured;
+    applicantType === 'pending_admin' && env.bootstrap.isConfigured;
 
   return {
     approvers: admins.map((a) => ({
       id: a.id,
-      // Only a masked phone + a friendly label leave the backend.
       name: a.display_name || (a.email ? a.email.split('@')[0] : 'Administrator'),
       maskedPhone: maskPhone(a.phone),
     })),
@@ -177,11 +179,7 @@ async function approveWithOtp(dbUser, input = {}) {
     if (!env.bootstrap.isConfigured) {
       throw new ApiError(403, 'Bootstrap admin approval is not configured.', { code: 'BOOTSTRAP_DISABLED' });
     }
-    // Re-check at the final step (edge case Part 13): must STILL be zero approved admins.
-    const count = await approvedAdminCount();
-    if (count !== 0) {
-      throw new ApiError(409, 'An approved administrator already exists. Please get approval from an existing admin.', { code: 'BOOTSTRAP_NO_LONGER_AVAILABLE' });
-    }
+    // Bootstrap phone is always valid regardless of approved admin count.
     // The verified phone must equal the configured bootstrap phone.
     if (verifiedPhone !== env.bootstrap.adminPhone) {
       throw new ApiError(403, 'This phone is not authorized for bootstrap approval.', { code: 'BOOTSTRAP_PHONE_MISMATCH' });
@@ -312,10 +310,7 @@ async function resolveApproverPhone(applicant, query = {}) {
     if (!env.bootstrap.isConfigured) {
       throw new ApiError(403, 'Bootstrap admin phone is not configured.', { code: 'BOOTSTRAP_DISABLED' });
     }
-    const count = await approvedAdminCount();
-    if (count !== 0) {
-      throw new ApiError(409, 'Bootstrap is no longer available; an approved admin exists.', { code: 'BOOTSTRAP_UNAVAILABLE' });
-    }
+    // Bootstrap phone is always available when configured.
     return env.bootstrap.adminPhone;
   }
   const approverId = Number(query.approverId);

@@ -32,8 +32,10 @@ const FOOT_NAV = [
  */
 export async function bootstrapAdmin({ activeId, title }) {
   const loginUrl = resolvePath(ROUTES.ADMIN.LOGIN);
-  // Verified PostgreSQL profile { id, firebaseUid, email, displayName, role }.
-  const profile = await requireRole('admin', loginUrl);
+  // Pending/rejected admins are redirected to the login page with ?pending=1
+  // so the pending approval screen is shown immediately (they're already signed in).
+  const pendingUrl = loginUrl + '?pending=1';
+  const profile = await requireRole('admin', loginUrl, loginUrl, pendingUrl);
   if (!profile) return null;
 
   // Normalize to the shape the layout/dashboards expect (they read `user.name`).

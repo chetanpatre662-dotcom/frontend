@@ -3,7 +3,7 @@
  * Guards the route, mounts the shell, returns { main, session }.
  */
 import { ROUTES, resolvePath } from '../config.js';
-import { requireAuth } from '../common/authGuard.js';
+import { requireRole } from '../common/authGuard.js';
 import { mountLayout } from '../common/layout.js';
 
 const NAV = [
@@ -17,14 +17,20 @@ const NAV = [
 ];
 
 /**
- * Gate the page on Firebase auth state, then mount the shell.
- * Returns null (after redirecting) if the visitor is not authenticated.
+ * Gate the page on Firebase auth state AND DB role='faculty' + status='approved'.
+ * Pending/rejected faculty are redirected to the login page with ?pending=1.
  * @returns {Promise<{main:HTMLElement, user:object}|null>}
  */
 export async function bootstrapFaculty({ activeId, title }) {
   const loginUrl = resolvePath(ROUTES.FACULTY.LOGIN);
-  const user = await requireAuth(loginUrl);
-  if (!user) return null; // redirected — not authenticated
+  const pendingUrl = loginUrl + '?pending=1';
+  const profile = await requireRole('faculty', loginUrl, loginUrl, pendingUrl);
+  if (!profile) return null;
+
+  const user = {
+    ...profile,
+    name: profile.displayName || (profile.email ? profile.email.split('@')[0] : 'Faculty'),
+  };
 
   const main = mountLayout({
     roleClass: 'role-faculty',
