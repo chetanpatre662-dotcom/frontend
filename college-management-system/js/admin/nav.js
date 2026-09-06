@@ -11,12 +11,14 @@ const NAV = [
   { section: 'Manage' },
   { id: 'students', label: 'Students', icon: 'graduation', href: ROUTES.ADMIN.STUDENTS },
   { id: 'faculty', label: 'Faculty', icon: 'user', href: ROUTES.ADMIN.FACULTY },
+  { id: 'requests', label: 'Requests', icon: 'bell', href: ROUTES.ADMIN.REQUESTS },
   { id: 'management', label: 'Admins', icon: 'shield', href: ROUTES.ADMIN.MANAGEMENT },
   { id: 'classes', label: 'Classes', icon: 'classes', href: ROUTES.ADMIN.CLASSES },
   { id: 'courses', label: 'Courses', icon: 'book', href: ROUTES.ADMIN.COURSES },
 ];
 
 const FOOT_NAV = [
+  { id: 'profile', label: 'My Profile', icon: 'user', href: ROUTES.ADMIN.PROFILE },
   { id: 'settings', label: 'Settings', icon: 'settings', href: ROUTES.ADMIN.SETTINGS },
 ];
 

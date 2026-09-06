@@ -81,6 +81,21 @@ router.patch('/users/:id/make-admin', async (req, res, next) => {
   }
 });
 
+/** PATCH /api/admin/users/:id/approve-admin — approve a pending/rejected admin applicant. */
+router.patch('/users/:id/approve-admin', async (req, res, next) => {
+  try {
+    const result = await adminService.approveAdmin(req.params.id);
+    res.status(200).json({
+      success: true,
+      message: result.changed ? 'Admin approved.' : 'Admin is already approved.',
+      changed: result.changed,
+      user: result.user,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 /** PATCH /api/admin/users/:id/reject — mark a pending faculty/admin applicant rejected. */
 router.patch('/users/:id/reject', async (req, res, next) => {
   try {

@@ -19,7 +19,7 @@ import { emptyState, skeletonCards, paginationBar } from '../common/components.j
 import { confirmDialog } from '../common/modal.js';
 import { toastSuccess, toastError } from '../common/toast.js';
 import { bootstrapAdmin } from './nav.js';
-import { getAdminUsers, approveFaculty, makeAdmin, rejectUser, deleteUser } from '../services/adminService.js';
+import { getAdminUsers, approveFaculty, approveAdmin, makeAdmin, rejectUser, deleteUser } from '../services/adminService.js';
 
 const PAGE_SIZE = 6;
 let all = [];        // users with a faculty profile
@@ -198,8 +198,9 @@ async function onApproveAdmin(id) {
     confirmLabel: 'Approve',
   });
   if (!ok) return;
-  // Approve admin via the make-admin route (sets role=admin + status=approved).
-  const res = await makeAdmin(id);
+  // Approve an admin applicant (works for self-signup admins without a faculty
+  // profile, and re-approves a previously rejected admin).
+  const res = await approveAdmin(id);
   if (!res.ok) return toastError(res.error || 'Could not approve admin.');
   toastSuccess('Admin approved.');
   await load();

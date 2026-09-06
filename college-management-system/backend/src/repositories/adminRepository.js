@@ -47,7 +47,7 @@ async function getCounts() {
 async function listUsers() {
   const { rows } = await query(`
     SELECT
-      u.id, u.firebase_uid, u.email, u.display_name, u.role, u.status, u.created_at,
+      u.id, u.firebase_uid, u.email, u.display_name, u.role, u.status, u.phone AS user_phone, u.created_at,
       s.id            AS student_id,
       s.roll_number   AS student_roll_number,
       s.full_name     AS student_full_name,

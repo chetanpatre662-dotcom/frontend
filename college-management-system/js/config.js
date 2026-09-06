@@ -187,6 +187,7 @@ export const ROUTES = {
     QUESTION_PAPERS: '/faculty/question-papers.html',
     EVENTS: '/faculty/events.html',
     AI: '/faculty/assistant.html',
+    PROFILE: '/faculty/profile.html',
   },
   STUDENT: {
     LOGIN: '/student/login.html',
@@ -197,6 +198,7 @@ export const ROUTES = {
     QUESTION_PAPERS: '/student/question-papers.html',
     EVENTS: '/student/events.html',
     AI: '/student/assistant.html',
+    PROFILE: '/student/profile.html',
   },
   ADMIN: {
     LOGIN: '/admin/login.html',
@@ -204,10 +206,12 @@ export const ROUTES = {
     FACULTY: '/admin/faculty.html',
     STUDENTS: '/admin/students.html',
     MANAGEMENT: '/admin/management.html',
+    REQUESTS: '/admin/requests.html',
     CLASSES: '/admin/classes.html',
     COURSES: '/admin/courses.html',
     SETTINGS: '/admin/settings.html',
     AI: '/admin/assistant.html',
+    PROFILE: '/admin/profile.html',
   },
 };
 

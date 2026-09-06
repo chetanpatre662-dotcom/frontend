@@ -12,9 +12,57 @@
  */
 import { $, $$, esc, timeAgo, initials } from './dom.js';
 import { icon } from './icons.js';
+import { ENV, ROUTES, resolvePath } from '../config.js';
 import { ask, suggestedPrompts } from '../services/aiService.js';
 import { listChats, getChat, createChat, appendMessage, deleteChat } from '../services/aiChatService.js';
 import { confirmDialog } from './modal.js';
+
+/* Human-readable labels for source document types. */
+const SOURCE_LABEL = {
+  note: 'Note',
+  question_paper: 'Question Paper',
+  assignment: 'Assignment',
+  project: 'Project',
+  announcement: 'Announcement',
+  event: 'Event',
+  document: 'Document',
+};
+
+/**
+ * Build a real, in-app link for a source reference (never an invented URL).
+ * - Documents with a fileId -> the backend signed-download endpoint.
+ * - Class-scoped items -> the role's class detail page.
+ * Returns null when no safe link can be built (source is then shown as text).
+ */
+function sourceHref(src, role) {
+  if (!src) return null;
+  if (src.fileId != null) {
+    // Backend authorizes + 302-redirects to a short-lived signed URL.
+    return `${ENV.API_BASE_URL}/files/${encodeURIComponent(src.fileId)}/download`;
+  }
+  if (src.classId != null) {
+    const routes = ROUTES[String(role || '').toUpperCase()];
+    if (routes && routes.CLASS_DETAIL) {
+      return `${resolvePath(routes.CLASS_DETAIL)}?id=${encodeURIComponent(src.classId)}`;
+    }
+  }
+  return null;
+}
+
+/** Render the "Sources:" block for an assistant message (if any). */
+function sourcesHTML(sources, role) {
+  if (!Array.isArray(sources) || sources.length === 0) return '';
+  const items = sources.map((s) => {
+    const label = SOURCE_LABEL[s.type] || 'Document';
+    const title = esc(s.title || `${label} #${s.id}`);
+    const href = sourceHref(s, role);
+    const inner = href
+      ? `<a href="${esc(href)}" target="_blank" rel="noopener">${title}</a>`
+      : title;
+    return `<li>${icon('file')} <span class="ai-src-type">${esc(label)}:</span> ${inner}</li>`;
+  }).join('');
+  return `<div class="ai-sources"><div class="ai-sources-head">Sources</div><ul>${items}</ul></div>`;
+}
 
 /**
  * @param {object} opts
@@ -27,6 +75,9 @@ export function renderAssistant({ main, user, role, profile }) {
   const ownerUid = user.uid || 'anon';
   let activeChatId = null;
   let busy = false;
+  // Server-side conversation id for the active local chat (threads memory).
+  // Map<localChatId, serverConversationId>.
+  const convoIds = new Map();
 
   main.innerHTML = `
     <div class="ai-layout">
@@ -47,7 +98,7 @@ export function renderAssistant({ main, user, role, profile }) {
             <textarea id="aiInput" rows="1" placeholder="Ask anything about your college management system…"></textarea>
             <button class="ai-send" id="aiSend" aria-label="Send" disabled>${icon('send')}</button>
           </div>
-          <div class="ai-disclaimer">AI responses are generated from your accessible data. Actions are added once the AI backend is connected.</div>
+          <div class="ai-disclaimer">Answers are grounded in your accessible Askbook data and cite their sources. The assistant is read-only and may occasionally be wrong &mdash; verify important details.</div>
         </div>
       </section>
     </div>
@@ -118,11 +169,13 @@ export function renderAssistant({ main, user, role, profile }) {
   function bubble(m) {
     const el = document.createElement('div');
     el.className = `ai-msg ${m.role}`;
+    const srcHtml = m.role === 'assistant' ? sourcesHTML(m.sources, role) : '';
     el.innerHTML = `
       <div class="ai-ava">${m.role === 'assistant' ? icon('sparkles') : esc(initials(user.name || 'You'))}</div>
       <div style="flex:1">
         <div class="ai-role">${m.role === 'assistant' ? 'Assistant' : 'You'}</div>
         <div class="ai-body">${esc(m.text)}</div>
+        ${srcHtml}
       </div>`;
     return el;
   }
@@ -180,7 +233,9 @@ export function renderAssistant({ main, user, role, profile }) {
     thread.appendChild(typing);
     scrollToBottom();
 
-    const answer = await ask({ role, profile, text });
+    const answer = await ask({ text, conversationId: convoIds.get(activeChatId) || null });
+    // Remember the server conversation id so follow-up questions keep context.
+    if (answer && answer.conversationId != null) convoIds.set(activeChatId, answer.conversationId);
     typing.remove();
     appendMessage(activeChatId, answer);
     thread.appendChild(bubble(answer));

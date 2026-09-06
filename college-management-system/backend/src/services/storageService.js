@@ -122,6 +122,21 @@ async function upload({ buffer, mimeType, classId, entityType }) {
 }
 
 /**
+ * Download an object's raw bytes server-side (Admin SDK). Used by the AI
+ * document-ingestion pipeline for text extraction. Access must be authorized by
+ * the caller BEFORE calling this (ingestion runs as an admin-triggered job).
+ * @param {string} storagePath
+ * @returns {Promise<Buffer>}
+ */
+async function downloadBuffer(storagePath) {
+  requireEnabled();
+  if (!storagePath) throw new ApiError(400, 'Missing storage path.', { code: 'NO_STORAGE_PATH' });
+  const bucket = getBucket();
+  const [buffer] = await bucket.file(storagePath).download();
+  return buffer;
+}
+
+/**
  * Generate a short-lived signed download URL for an object. Access must be
  * authorized by the caller BEFORE calling this.
  */
@@ -155,6 +170,7 @@ module.exports = {
   validate,
   upload,
   getSignedDownloadUrl,
+  downloadBuffer,
   remove,
   ALLOWED_MIME,
   MAX_BYTES,

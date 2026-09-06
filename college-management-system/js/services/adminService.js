@@ -78,6 +78,18 @@ export async function makeAdmin(userId) {
   }
 }
 
+/** PATCH /api/admin/users/:id/approve-admin — approve a pending/rejected admin applicant. */
+export async function approveAdmin(userId) {
+  const { token, error } = await withToken();
+  if (error) return error;
+  try {
+    const res = await authedRequest(`/admin/users/${encodeURIComponent(userId)}/approve-admin`, token, { method: 'PATCH' });
+    return { ok: true, changed: res?.changed, user: res?.user, message: res?.message };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'Could not approve admin.', status: e?.status };
+  }
+}
+
 /** PATCH /api/admin/users/:id/remove-admin — admin -> faculty (no delete). */
 export async function removeAdmin(userId) {
   const { token, error } = await withToken();

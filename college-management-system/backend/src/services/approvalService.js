@@ -17,9 +17,11 @@
  *     Admin SDK and reads the VERIFIED phone_number from the decoded token,
  *     then compares it (server-side) to the selected approver's DB phone (or the
  *     configured BOOTSTRAP_ADMIN_PHONE). No raw OTP is ever stored.
- *   - Bootstrap flow (approve the FIRST admin) is available ONLY when the count
- *     of approved admins is exactly 0, and is re-checked at the final approval
- *     step (edge case: another admin may get approved mid-flow).
+ *   - Bootstrap flow is available WHENEVER BOOTSTRAP_ADMIN_PHONE is configured,
+ *     regardless of how many approved admins exist (0, 1, or 100). It acts as a
+ *     permanent super-approver for admin applicants. The verified OTP phone is
+ *     still compared to the configured bootstrap phone at the final approval
+ *     step, so it is never blocked or bypassed by any admin-count condition.
  * -----------------------------------------------------------------------------
  */
 'use strict';
@@ -94,8 +96,10 @@ async function myStatus(dbUser) {
 
 /**
  * List eligible OTP approvers for the given target, with MASKED phones only.
- * When the target is a pending ADMIN and no approved admin exists, bootstrap
- * mode is signaled instead (empty approver list + bootstrapAvailable=true).
+ * For a pending ADMIN, bootstrapAvailable is true whenever BOOTSTRAP_ADMIN_PHONE
+ * is configured — shown ALONGSIDE any approved admins, never hidden by their
+ * count. Only role='admin' AND status='approved' users appear as approvers
+ * (pending/rejected admins are excluded).
  * @param {object} dbUser - the verified pending applicant
  */
 async function listApprovers(dbUser) {

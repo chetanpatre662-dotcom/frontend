@@ -22,6 +22,7 @@ const announcementRoutes = require('./announcement.routes');
 const notificationRoutes = require('./notification.routes');
 const portalRoutes = require('./portal.routes');
 const approvalRoutes = require('./approval.routes');
+const aiRoutes = require('./ai.routes');
 
 const router = express.Router();
 
@@ -38,5 +39,6 @@ router.use('/', announcementRoutes);
 router.use('/', notificationRoutes);
 router.use('/', portalRoutes);
 router.use('/', approvalRoutes);
+router.use('/', aiRoutes);
 
 module.exports = router;

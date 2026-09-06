@@ -10,6 +10,9 @@ export const rules = {
   minLen: (n) => (v) => String(v).length >= n || `Must be at least ${n} characters.`,
   // Mobile: 10–15 digits, optional leading +, spaces/hyphens ignored for the check.
   mobile: (v) => /^\+?\d{10,15}$/.test(String(v).replace(/[\s-]/g, '')) || 'Enter a valid mobile number.',
+  // Indian mobile: EXACTLY 10 digits (the +91 country code is fixed in the UI
+  // and added by the backend, so the user enters only the 10-digit number).
+  mobileIN: (v) => /^\d{10}$/.test(String(v).replace(/\D/g, '')) || 'Enter a valid 10-digit mobile number.',
   // For <select> fields: must be a non-empty, chosen value.
   selected: (v) => (v !== null && v !== undefined && String(v).trim() !== '') || 'Please select an option.',
 };

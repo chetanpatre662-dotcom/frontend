@@ -57,4 +57,31 @@ router.get('/profile/status', requireAuth, async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/profile/me — the current user's full editable profile (view).
+ * Identity is derived from the verified Firebase token; no id is accepted.
+ */
+router.get('/profile/me', requireAuth, async (req, res, next) => {
+  try {
+    const profile = await profileService.getMyProfile(req.user.uid);
+    res.status(200).json({ success: true, profile });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /api/profile/me — update the current user's OWN profile only.
+ * The user is resolved from the verified token; a client cannot target another
+ * user by sending an id. Only safe fields are editable (never role/status/ids).
+ */
+router.patch('/profile/me', requireAuth, async (req, res, next) => {
+  try {
+    const profile = await profileService.updateMyProfile(req.user.uid, req.body || {});
+    res.status(200).json({ success: true, message: 'Profile updated.', profile });
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;

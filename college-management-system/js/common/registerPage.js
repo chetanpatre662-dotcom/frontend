@@ -36,6 +36,7 @@ import { $, esc } from './dom.js';
 import { icon } from './icons.js';
 import { toastSuccess, toastError, toastInfo } from './toast.js';
 import { validateForm, rules, clearErrors, setFieldError } from './validation.js';
+import { phoneFieldHTML, wirePhoneInputs, phoneForSubmit } from './phoneInput.js';
 import {
   registerWithEmail,
   loginWithGoogle,
@@ -64,6 +65,8 @@ export function initRegisterPage(cfg) {
   if (profileHost) {
     profileHost.innerHTML = isStudent ? studentFieldsHTML() : facultyFieldsHTML();
     if (isStudent) wireStudentDependentDropdowns(form);
+    // Wire the fixed-+91 phone input behavior (numeric-only, max 10, paste-normalize).
+    wirePhoneInputs(profileHost);
   }
 
   // Password visibility toggles.
@@ -172,7 +175,7 @@ async function submitProfile(form, isStudent, cfg) {
     const data = {
       fullName: form.elements['name'].value.trim(),
       rollNumber: form.elements['rollNumber'].value.trim(),
-      mobileNumber: form.elements['mobileNumber'].value.trim(),
+      mobileNumber: phoneForSubmit(form.elements['mobileNumber'].value),
       program: form.elements['program'].value,
       branch: form.elements['branch'].value,
       semester: Number(form.elements['semester'].value),
@@ -193,7 +196,7 @@ async function submitProfile(form, isStudent, cfg) {
   // student dashboard, even though the DB role is currently 'student'.
   const data = {
     fullName: form.elements['name'].value.trim(),
-    mobileNumber: form.elements['mobileNumber'].value.trim(),
+    mobileNumber: phoneForSubmit(form.elements['mobileNumber'].value),
     department: form.elements['department'].value,
     designation: form.elements['designation'].value,
   };
@@ -269,11 +272,7 @@ function studentFieldsHTML() {
       <input class="input" id="rollNumber" name="rollNumber" type="text" placeholder="e.g. CSE-B3-014" />
       <div class="field-error"></div>
     </div>
-    <div class="form-group">
-      <label class="form-label" for="mobileNumber">Mobile number <span class="req">*</span></label>
-      <input class="input" id="mobileNumber" name="mobileNumber" type="tel" inputmode="tel" placeholder="e.g. 9876543210" />
-      <div class="field-error"></div>
-    </div>
+    ${phoneFieldHTML({ id: 'mobileNumber', label: 'Mobile number', required: true })}
     <div class="form-group">
       <label class="form-label" for="program">Course <span class="req">*</span></label>
       <select class="input" id="program" name="program">
@@ -311,11 +310,7 @@ function facultyFieldsHTML() {
   const deptOpts = DEPARTMENTS.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
   const desigOpts = DESIGNATIONS.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
   return `
-    <div class="form-group">
-      <label class="form-label" for="mobileNumber">Mobile number <span class="req">*</span></label>
-      <input class="input" id="mobileNumber" name="mobileNumber" type="tel" inputmode="tel" placeholder="e.g. 9876543210" />
-      <div class="field-error"></div>
-    </div>
+    ${phoneFieldHTML({ id: 'mobileNumber', label: 'Mobile number', required: true })}
     <div class="form-group">
       <label class="form-label" for="department">Department <span class="req">*</span></label>
       <select class="input" id="department" name="department">
@@ -386,7 +381,7 @@ function validateProfileFields(form, isStudent) {
   if (isStudent) {
     return validateForm(form, {
       rollNumber: [rules.required],
-      mobileNumber: [rules.required, rules.mobile],
+      mobileNumber: [rules.required, rules.mobileIN],
       program: [rules.selected],
       branch: [rules.selected],
       year: [rules.selected],
@@ -394,7 +389,7 @@ function validateProfileFields(form, isStudent) {
     });
   }
   return validateForm(form, {
-    mobileNumber: [rules.required, rules.mobile],
+    mobileNumber: [rules.required, rules.mobileIN],
     department: [rules.selected],
     designation: [rules.selected],
   });

@@ -50,7 +50,7 @@ export function getApprovers() {
  * @param {object} opts
  * @param {string} opts.phoneIdToken   - Firebase phone-auth ID token (OTP proof)
  * @param {number} [opts.approverId]   - selected approver ID (normal flow)
- * @param {boolean} [opts.bootstrap]   - true for the zero-admin bootstrap flow
+ * @param {boolean} [opts.bootstrap]   - true to approve via the configured bootstrap phone
  */
 export function verifyOtp({ phoneIdToken, approverId, bootstrap }) {
   const body = { phoneIdToken };

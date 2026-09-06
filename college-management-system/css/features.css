@@ -459,6 +459,23 @@
 .ai-composer .ai-send:disabled { background: var(--gray-300); cursor: not-allowed; }
 .ai-disclaimer { max-width: 760px; margin: var(--sp-2) auto 0; text-align: center; font-size: var(--fs-xs); color: var(--gray-400); }
 
+/* Source references on an assistant answer */
+.ai-sources {
+  margin-top: var(--sp-3); padding: var(--sp-3);
+  background: var(--gray-50, #f9fafb); border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+}
+.ai-sources-head {
+  font-size: var(--fs-xs); font-weight: 700; color: var(--gray-500);
+  text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--sp-2);
+}
+.ai-sources ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ai-sources li { font-size: var(--fs-sm); color: var(--gray-700); display: flex; align-items: center; gap: 6px; }
+.ai-sources li svg { flex-shrink: 0; width: 14px; height: 14px; color: var(--gray-400); }
+.ai-sources .ai-src-type { font-weight: 600; color: var(--gray-500); }
+.ai-sources a { color: var(--brand-600); text-decoration: none; }
+.ai-sources a:hover { text-decoration: underline; }
+
 /* Responsive */
 @media (max-width: 860px) {
   .ai-layout { grid-template-columns: 1fr; }

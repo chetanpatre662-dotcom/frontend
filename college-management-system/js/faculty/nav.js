@@ -14,6 +14,8 @@ const NAV = [
   { id: 'announcements', label: 'Announcements', icon: 'megaphone', href: ROUTES.FACULTY.ANNOUNCEMENTS },
   { id: 'papers', label: 'Question Papers', icon: 'file', href: ROUTES.FACULTY.QUESTION_PAPERS },
   { id: 'events', label: 'Events', icon: 'calendar', href: ROUTES.FACULTY.EVENTS },
+  { section: 'Account' },
+  { id: 'profile', label: 'My Profile', icon: 'user', href: ROUTES.FACULTY.PROFILE },
 ];
 
 /**

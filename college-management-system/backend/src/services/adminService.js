@@ -32,6 +32,15 @@ function yearFromSemester(program, semester) {
   return Math.ceil(sem / 2); // 1-2->1, 3-4->2, 5-6->3, 7-8->4
 }
 
+/** Reduce a stored phone (E.164 or raw) to bare 10 digits for display. */
+function tenDigits(value) {
+  if (!value) return null;
+  let d = String(value).replace(/\D/g, '');
+  if (d.length > 10 && d.startsWith('91')) d = d.slice(2);
+  if (d.length > 10) d = d.slice(-10);
+  return d || null;
+}
+
 /** Shape a joined user row into a stable public JSON object. */
 function toUserView(row) {
   const hasStudent = row.student_id != null;
@@ -42,12 +51,18 @@ function toUserView(row) {
   const facultyPending = hasFaculty && !(row.role === 'faculty' && status === 'approved');
   const adminPending = row.role === 'admin' && status !== 'approved';
   const isRejected = status === 'rejected';
+  // Any user who submitted a faculty/admin application (incl. rejected ones).
+  const isApplicant = hasFaculty || row.role === 'admin';
+
+  // Best phone for display: faculty/student mobile first, else the users.phone.
+  const phone = tenDigits(row.faculty_mobile) || tenDigits(row.student_mobile) || tenDigits(row.user_phone);
 
   const view = {
     id: row.id,
     firebaseUid: row.firebase_uid,
     email: row.email,
     displayName: row.display_name,
+    phone,
     role: row.role,
     status,
     createdAt: row.created_at,
@@ -56,12 +71,17 @@ function toUserView(row) {
     facultyPending,
     adminPending,
     isRejected,
+    isApplicant,
+    // The "kind" of application, for the requests page label + approve routing.
+    applicantType: (row.role === 'admin') ? 'admin' : (hasFaculty ? 'faculty' : null),
     // Eligibility flags the UI can use (backend still re-enforces).
     // Approve a pending faculty applicant (faculty profile, not yet faculty/approved).
     canApproveFaculty: hasFaculty && !(row.role === 'faculty' && status === 'approved') && row.role !== 'admin',
     canMakeAdmin: hasFaculty && row.role !== 'admin',
-    // Reject applies to any pending faculty/admin applicant.
+    // Reject applies to any pending faculty/admin applicant (not already rejected/approved).
     canReject: (facultyPending || adminPending) && status !== 'rejected',
+    // Re-approve applies to a REJECTED applicant (rejected faculty or rejected admin).
+    canReApprove: isRejected && isApplicant,
     student: null,
     faculty: null,
   };
@@ -167,6 +187,27 @@ async function rejectUser(targetId, requester) {
     throw new ApiError(409, 'Only a pending faculty or admin applicant can be rejected.', { code: 'NOT_PENDING' });
   }
   const updated = await adminRepository.updateStatus(target.id, 'rejected');
+  return { changed: true, user: updated };
+}
+
+/**
+ * Approve an ADMIN applicant (role='admin', status pending OR rejected) by
+ * setting status='approved'. This is the correct path for a self-signup admin
+ * request, which has role='admin' but NO faculty profile (so makeAdmin's
+ * faculty-profile requirement does not apply). Also handles RE-APPROVAL of a
+ * previously rejected admin.
+ */
+async function approveAdmin(targetId) {
+  const target = await requireTarget(targetId);
+  if (target.role !== 'admin') {
+    throw new ApiError(409, `Cannot approve-admin a user with role '${target.role}'.`, {
+      code: 'NOT_ADMIN_APPLICANT',
+    });
+  }
+  if (target.status === 'approved') {
+    return { changed: false, user: target };
+  }
+  const updated = await adminRepository.updateRoleAndStatus(target.id, 'admin', 'approved');
   return { changed: true, user: updated };
 }
 
@@ -277,4 +318,4 @@ async function deleteUser(targetId, requester) {
   };
 }
 
-module.exports = { getStats, listUsers, approveFaculty, rejectUser, makeAdmin, removeAdmin, deleteUser, toUserView };
+module.exports = { getStats, listUsers, approveFaculty, approveAdmin, rejectUser, makeAdmin, removeAdmin, deleteUser, toUserView };

@@ -13,6 +13,8 @@ const NAV = [
   { id: 'announcements', label: 'Announcements', icon: 'megaphone', href: ROUTES.STUDENT.ANNOUNCEMENTS },
   { id: 'papers', label: 'Question Papers', icon: 'file', href: ROUTES.STUDENT.QUESTION_PAPERS },
   { id: 'events', label: 'Events', icon: 'calendar', href: ROUTES.STUDENT.EVENTS },
+  { section: 'Account' },
+  { id: 'profile', label: 'My Profile', icon: 'user', href: ROUTES.STUDENT.PROFILE },
 ];
 
 /** @returns {Promise<{main:HTMLElement, user:object}|null>} */

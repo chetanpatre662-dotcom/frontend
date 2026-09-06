@@ -126,6 +126,23 @@ async function saveUnverifiedPhone(id, phone) {
   return rows[0] || null;
 }
 
+/**
+ * Update a user's display_name and/or phone (used by the self-service Admin
+ * profile edit). Only the provided fields are changed (COALESCE keeps existing
+ * values when a param is null). Does NOT touch role, status, or phone_verified.
+ */
+async function updateContact(id, { displayName = null, phone = null } = {}) {
+  const { rows } = await query(
+    `UPDATE users
+        SET display_name = COALESCE($2, display_name),
+            phone        = COALESCE($3, phone)
+      WHERE id = $1
+      RETURNING ${RETURNING}`,
+    [id, displayName, phone]
+  );
+  return rows[0] || null;
+}
+
 /** Count users matching a role + status (e.g. approved admins). */
 async function countByRoleStatus(role, status) {
   const { rows } = await query(
@@ -160,6 +177,7 @@ module.exports = {
   updateRoleAndStatus,
   setVerifiedPhone,
   saveUnverifiedPhone,
+  updateContact,
   countByRoleStatus,
   listApprovedAdminsWithPhone,
 };
