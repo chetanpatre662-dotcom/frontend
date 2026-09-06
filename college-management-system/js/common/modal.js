@@ -81,3 +81,47 @@ export function confirmDialog({ title = 'Are you sure?', message = '', confirmLa
     });
   });
 }
+
+/**
+ * Single-line text prompt dialog — resolves the entered string, or null if the
+ * user cancels/closes. The initial value is inserted as a DOM value (never as
+ * raw HTML) so it can't inject markup.
+ */
+export function promptDialog({ title = 'Enter a value', label = '', value = '', confirmLabel = 'Save', placeholder = '' } = {}) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; resolve(v); } };
+    const { el } = openModal({
+      title,
+      body: `
+        <div class="form-group">
+          ${label ? `<label class="form-label" for="promptInput">${label}</label>` : ''}
+          <input class="input" id="promptInput" type="text" placeholder="${placeholder}" />
+        </div>`,
+      actions: [
+        { label: 'Cancel', class: 'btn-ghost', onClick: () => done(null) },
+        {
+          label: confirmLabel,
+          class: 'btn-primary',
+          onClick: (close, overlay) => {
+            const inputEl = overlay.querySelector('#promptInput');
+            done(inputEl ? inputEl.value : null);
+          },
+        },
+      ],
+      onClose: () => done(null),
+    });
+    // Set the initial value via the DOM property (safe — not parsed as HTML).
+    const inputEl = el.querySelector('#promptInput');
+    if (inputEl) {
+      inputEl.value = value || '';
+      inputEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const btn = el.querySelector('.modal-footer .btn-primary');
+          if (btn) btn.click();
+        }
+      });
+    }
+  });
+}

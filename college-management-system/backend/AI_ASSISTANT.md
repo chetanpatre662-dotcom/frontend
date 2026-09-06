@@ -259,3 +259,171 @@ gracefully when the assistant is disabled.
 | Follow-up questions lose context | Ensure the frontend sends back `conversationId` (it does by default). |
 
 > Never log or commit the real `GEMINI_API_KEY`. Keep it only in `backend/.env`.
+
+---
+
+# Phase 2 — Conversation management, documents, markdown, hardening
+
+Phase 2 builds on the Phase 1 foundation above. Everything is **additive and
+backward-compatible**: the Phase 1 Gemini/RAG/tool-calling architecture is
+unchanged. The AI remains strictly **read-only** and the `GEMINI_API_KEY` stays
+server-side only.
+
+## 1. Full conversation management (backend-persisted)
+
+Conversations now live in PostgreSQL (`ai_conversations` / `ai_messages`) instead
+of browser localStorage. The chat UI loads history, opens/continues a thread,
+renames and deletes — all scoped to the authenticated user.
+
+New endpoints (all `requireAuth`, identity from the verified token):
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/ai/conversations` | List the caller's own threads |
+| GET | `/api/ai/conversations/:id` | Load one thread **with messages** (owner only; 404 otherwise) |
+| PATCH | `/api/ai/conversations/:id` | Rename (owner only) |
+| DELETE | `/api/ai/conversations/:id` | Delete (owner only; messages cascade) |
+
+Ownership is enforced in SQL (`WHERE id = $1 AND user_id = $2`), so a user can
+never read, rename, or delete another user's conversation — a non-owned id is
+indistinguishable from a missing one (404, no existence leak).
+
+Frontend: `js/services/aiChatService.js` (backend client) + `js/common/aiAssistant.js`
+(loading/empty/error states, retry, rename via a prompt dialog, delete with
+confirmation, auto-scroll, Enter to send / Shift+Enter for newline).
+
+## 2. Role-specific behavior
+
+The orchestrator sends a **minimal, role-scoped** context line (no ids, emails,
+or phone numbers) — just enough for the model to be helpful and correctly
+scoped:
+
+- **Student** — own profile + classes/papers/announcements/events/documents for
+  their academic group.
+- **Faculty** — own profile + owned classes and their content + public
+  announcements/events.
+- **Admin** — the administrative read-only view.
+
+All three ask questions naturally ("meri classes kaun si hain?", "latest
+announcements?", "is subject ke documents me kya hai?") and the model uses the
+authorized tools/RAG. Authorization is always re-checked server-side.
+
+## 3. Admin document management + RAG scoping
+
+Admins can upload standalone documents into the AI knowledge base at
+**Admin → AI Documents** (`admin/ai-documents.html`).
+
+- Supported: **PDF, DOCX, TXT** (max 25 MB).
+- Visibility scope set at upload time:
+  - **Public** — any authenticated user can have the AI surface it.
+  - **Class-scoped** — restricted to a `program` / `branch` / `semester` group.
+- The admin table shows name, type, size, scope, **indexing status** (indexed /
+  pending / failed / skipped), the chunk count, indexing error (if any), and the
+  uploaded date. Re-index and delete are available per row.
+
+Storage separation (important):
+
+- The original file bytes go to Firebase Storage; metadata to the existing
+  `files` table (`entity_type = 'ai_document'`, added in migration 011).
+- The AI registry row lives in `ai_documents`; the extracted text + embeddings
+  live in `ai_document_chunks` (`source_type = 'document'`).
+- **Deleting** an AI document removes its registry row + its RAG chunks, and the
+  underlying file **only because that file was uploaded specifically for the AI
+  KB** (guarded by `entity_type = 'ai_document'`). It never touches class-content
+  files. Pass `?keepFile=1` to preserve the stored file.
+
+Retrieval permission filtering happens in SQL (`ai_document_chunks` +
+`aiRepository.searchChunks`) **before** any chunk reaches the model, so a student
+never receives a chunk from a document outside their scope.
+
+Endpoints (admin only): `GET /api/ai/documents`, `POST /api/ai/documents`
+(multipart), `POST /api/ai/documents/:id/reindex`, `DELETE /api/ai/documents/:id`.
+
+## 4. Source rendering
+
+Assistant answers show a **Sources** block. Each source shows a human label
+(Note / Question Paper / Assignment / Project / Announcement / Event / Document),
+the document title, and a section indicator when available. Links point to real
+in-app routes only — the file download endpoint (`/api/files/:id/download`,
+which authorizes then 302-redirects to a short-lived signed URL) or the class
+detail page. No signed URLs, storage credentials, keys, or DB internals are ever
+exposed. Tool-only answers (no document) show an understandable label without a
+broken link.
+
+## 5. Markdown rendering (XSS-safe)
+
+Assistant text is rendered through `js/common/markdown.js` — a tiny,
+**dependency-free, escape-first** renderer. Every character is HTML-escaped
+*before* a small whitelist of formatting (headings, bold, italic, inline + fenced
+code, lists, block quotes, GFM tables, horizontal rules, and links restricted to
+`http`/`https`/`mailto`) is re-introduced. Raw HTML, images, and unsafe URL
+schemes (`javascript:`, `data:`) are neutralized. This is the single sanitized
+entry point for model output.
+
+## 6. Error handling
+
+Handled distinctly, with friendly user messages and server-only diagnostics
+(never leaking keys, stack traces, SQL, or infrastructure):
+
+- Gemini not configured → clear "AI not enabled" message (degraded mode).
+- Gemini unavailable / invalid key → 503 (mapped `AI_AUTH_ERROR`, logged).
+- Timeout → 504; rate limit → retry then friendly "busy" message.
+- Tool execution failure → the model is told the lookup failed; the user gets a
+  helpful answer or a clear "couldn't complete that".
+- RAG / pgvector unavailable → retrieval returns empty and the answer says the
+  information isn't available (never fabricated).
+- Document ingestion failure → recorded on the `ai_documents` row (`failed` +
+  reason); never marked indexed.
+- Unauthorized / expired auth → 401/403; the UI prompts re-sign-in.
+- Network failure → friendly retry affordance in the chat.
+
+## 7. Security model (recap)
+
+- `GEMINI_API_KEY` server-side only; never in JS/HTML/CSS/localStorage/responses/logs.
+- Identity always from the verified Firebase token — never from the request body
+  or from tool arguments. No tool accepts a user/role/id parameter.
+- Read-only: no create/update/delete/approve/reject tools; no raw-SQL tool.
+- Permission filtering for tools (existing services) and RAG (SQL scope) both
+  run server-side.
+- Firebase credentials are never exposed.
+
+## 8. Database (migration 011)
+
+`011_ai_documents.sql` (additive; migration 010 untouched) adds the
+`ai_documents` registry table (with indexes on status + scope + created) and
+extends the `files.entity_type` CHECK to include `'ai_document'`. Conversation
+cascades come from migration 010 (`ai_messages → ai_conversations ON DELETE
+CASCADE`), and chunk dedup is guaranteed by the unique
+`(source_type, source_id, chunk_index)` index; deleting a document removes its
+chunks so nothing stays retrievable through RAG.
+
+## 9. Testing
+
+Automated tests run with Node's built-in runner (no new dependency):
+
+```bash
+cd backend
+npm test          # node --test
+```
+
+`backend/tests/ai.test.js` + `backend/tests/markdown.test.mjs` cover: RAG scope
+SQL for student/faculty/admin/none, conversation ownership isolation
+(find/rename/delete + orchestrator returns null cross-user), no tool exposes a
+user/role/id parameter, the toolset is read-only with no raw-SQL tool,
+`executeTool` refusal without a user, Gemini-not-configured graceful degradation,
+system-prompt hardening, and markdown XSS safety (script/img escaped,
+`javascript:`/`data:` neutralized, safe links allowed). Current result: **23
+passing**.
+
+> These do not exercise a live Gemini call. End-to-end Gemini behavior requires a
+> real `GEMINI_API_KEY` (see below).
+
+## 10. Activating Gemini (no paid key required to implement)
+
+Everything above is implemented and testable **without** a Gemini key. To turn
+on live answers/embeddings, set `GEMINI_API_KEY` in `backend/.env` (Google AI
+Studio provides a free tier), install `pgvector` on the database server, run
+`npm run migrate`, restart the backend, and index documents via the Admin → AI
+Documents page (or `POST /api/ai/ingest`). Until a key is set, the assistant
+degrades gracefully and document uploads are stored but reported as not-yet-
+indexed with a clear reason.

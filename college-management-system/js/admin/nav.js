@@ -8,6 +8,7 @@ import { mountLayout } from '../common/layout.js';
 const NAV = [
   { id: 'dashboard', label: 'Overview', icon: 'dashboard', href: ROUTES.ADMIN.DASHBOARD },
   { id: 'ai', label: 'AI Assistant', icon: 'sparkles', href: ROUTES.ADMIN.AI, ai: true },
+  { id: 'ai-documents', label: 'AI Documents', icon: 'file', href: ROUTES.ADMIN.AI_DOCUMENTS },
   { section: 'Manage' },
   { id: 'students', label: 'Students', icon: 'graduation', href: ROUTES.ADMIN.STUDENTS },
   { id: 'faculty', label: 'Faculty', icon: 'user', href: ROUTES.ADMIN.FACULTY },

@@ -211,6 +211,7 @@ export const ROUTES = {
     COURSES: '/admin/courses.html',
     SETTINGS: '/admin/settings.html',
     AI: '/admin/assistant.html',
+    AI_DOCUMENTS: '/admin/ai-documents.html',
     PROFILE: '/admin/profile.html',
   },
 };

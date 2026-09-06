@@ -57,3 +57,18 @@ DROP TRIGGER IF EXISTS trg_ai_documents_updated_at ON ai_documents;
 CREATE TRIGGER trg_ai_documents_updated_at
   BEFORE UPDATE ON ai_documents
   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- ---- Allow standalone AI documents in the existing files metadata table ----
+-- The `files` table (migration 007) constrains entity_type to class content
+-- kinds. Standalone AI documents need their own entity_type = 'ai_document'.
+-- Rebuild the CHECK constraint to ADD that value (guarded + idempotent). This
+-- is additive: existing values remain valid, no rows are affected.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'files_entity_type_check') THEN
+    ALTER TABLE files DROP CONSTRAINT files_entity_type_check;
+  END IF;
+  ALTER TABLE files
+    ADD CONSTRAINT files_entity_type_check
+    CHECK (entity_type IN ('note','question_paper','assignment','project','message','ai_document'));
+END $$;

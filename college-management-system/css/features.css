@@ -475,6 +475,38 @@
 .ai-sources .ai-src-type { font-weight: 600; color: var(--gray-500); }
 .ai-sources a { color: var(--brand-600); text-decoration: none; }
 .ai-sources a:hover { text-decoration: underline; }
+.ai-sources .ai-src-meta { color: var(--gray-400); font-size: var(--fs-xs); }
+
+/* History sidebar states + rename/delete controls */
+.aih-loading, .aih-error, .aih-empty { padding: var(--sp-4); font-size: var(--fs-sm); color: var(--gray-500); text-align: center; }
+.aih-error { color: var(--error-600, #dc2626); }
+.aih-item .aih-rename, .aih-item .aih-del { opacity: 0; transition: opacity 0.15s; }
+.aih-item:hover .aih-rename, .aih-item:hover .aih-del { opacity: 1; }
+.btn-link { background: none; border: none; color: var(--brand-600); cursor: pointer; text-decoration: underline; font: inherit; padding: 0; }
+
+/* Thread loading / error + retry */
+.ai-loading-thread, .ai-error-thread { padding: var(--sp-6); text-align: center; color: var(--gray-500); font-size: var(--fs-sm); }
+.ai-error-thread { color: var(--error-600, #dc2626); }
+.ai-retry { margin: var(--sp-2) 0 var(--sp-4) 42px; }
+
+/* Markdown rendering inside assistant bubbles */
+.ai-md p { margin: 0 0 var(--sp-2); }
+.ai-md p:last-child { margin-bottom: 0; }
+.ai-md h1, .ai-md h2, .ai-md h3, .ai-md h4, .ai-md h5, .ai-md h6 {
+  margin: var(--sp-3) 0 var(--sp-2); font-weight: 700; line-height: 1.3;
+}
+.ai-md h1 { font-size: 1.25rem; } .ai-md h2 { font-size: 1.15rem; } .ai-md h3 { font-size: 1.05rem; }
+.ai-md ul, .ai-md ol { margin: 0 0 var(--sp-2); padding-left: 1.4em; }
+.ai-md li { margin: 2px 0; }
+.ai-md code { background: var(--gray-100, #f3f4f6); padding: 1px 5px; border-radius: 4px; font-size: 0.9em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ai-md .ai-md-pre { background: var(--gray-900, #111827); color: #f9fafb; padding: var(--sp-3); border-radius: 8px; overflow-x: auto; margin: 0 0 var(--sp-2); }
+.ai-md .ai-md-pre code { background: none; color: inherit; padding: 0; }
+.ai-md blockquote { border-left: 3px solid var(--border-strong, #d1d5db); margin: 0 0 var(--sp-2); padding: 2px 0 2px var(--sp-3); color: var(--gray-600); }
+.ai-md .ai-md-table { border-collapse: collapse; width: 100%; margin: 0 0 var(--sp-2); font-size: var(--fs-sm); }
+.ai-md .ai-md-table th, .ai-md .ai-md-table td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.ai-md .ai-md-table th { background: var(--gray-50, #f9fafb); font-weight: 600; }
+.ai-md hr { border: none; border-top: 1px solid var(--border); margin: var(--sp-3) 0; }
+.ai-md a { color: var(--brand-600); }
 
 /* Responsive */
 @media (max-width: 860px) {

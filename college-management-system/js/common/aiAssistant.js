@@ -1,23 +1,33 @@
 /**
- * aiAssistant.js — Shared Universal AI Assistant UI (LLM-style).
+ * aiAssistant.js — Shared AI Assistant UI (backend-persisted conversations).
  * -----------------------------------------------------------------------------
- * Renders a two-pane chat: left = chat history (New Chat, search, list),
- * right = conversation area with empty-state suggestions, message bubbles,
- * a typing indicator and a composer with keyboard shortcut (Enter to send).
+ * Two-pane chat: left = conversation history (New chat, search, list with
+ * rename/delete), right = the active thread + composer.
  *
- * It talks ONLY to aiService.ask() and aiChatService for persistence. There is
- * no real LLM yet — aiService is a documented mock. The disclaimer in the UI
- * makes that explicit to users.
+ * Phase 2:
+ *  - Conversations + messages are loaded from the backend (PostgreSQL), scoped
+ *    to the authenticated user. No cross-user data (server-enforced).
+ *  - Assistant answers render safe Markdown (js/common/markdown.js) + a Sources
+ *    block with real in-app links.
+ *  - Loading / empty / error states, retry, rename, delete-with-confirm.
+ *  - Enter to send, Shift+Enter for newline, auto-scroll, disabled-while-busy.
+ *
+ * The Gemini API key is NEVER referenced here — the browser only talks to the
+ * Askbook backend.
  * -----------------------------------------------------------------------------
  */
-import { $, $$, esc, timeAgo, initials } from './dom.js';
+import { $, $$, esc, initials } from './dom.js';
 import { icon } from './icons.js';
 import { ENV, ROUTES, resolvePath } from '../config.js';
+import { renderMarkdown } from './markdown.js';
 import { ask, suggestedPrompts } from '../services/aiService.js';
-import { listChats, getChat, createChat, appendMessage, deleteChat } from '../services/aiChatService.js';
-import { confirmDialog } from './modal.js';
+import {
+  listConversations, getConversation, renameConversation, deleteConversation,
+} from '../services/aiChatService.js';
+import { confirmDialog, promptDialog } from './modal.js';
+import { toastError, toastSuccess } from './toast.js';
 
-/* Human-readable labels for source document types. */
+/* Human-readable labels for source reference types. */
 const SOURCE_LABEL = {
   note: 'Note',
   question_paper: 'Question Paper',
@@ -28,16 +38,10 @@ const SOURCE_LABEL = {
   document: 'Document',
 };
 
-/**
- * Build a real, in-app link for a source reference (never an invented URL).
- * - Documents with a fileId -> the backend signed-download endpoint.
- * - Class-scoped items -> the role's class detail page.
- * Returns null when no safe link can be built (source is then shown as text).
- */
+/** Build a real, in-app link for a source reference (never an invented URL). */
 function sourceHref(src, role) {
   if (!src) return null;
   if (src.fileId != null) {
-    // Backend authorizes + 302-redirects to a short-lived signed URL.
     return `${ENV.API_BASE_URL}/files/${encodeURIComponent(src.fileId)}/download`;
   }
   if (src.classId != null) {
@@ -49,17 +53,18 @@ function sourceHref(src, role) {
   return null;
 }
 
-/** Render the "Sources:" block for an assistant message (if any). */
+/** Render the "Sources" block for an assistant message (if any). */
 function sourcesHTML(sources, role) {
   if (!Array.isArray(sources) || sources.length === 0) return '';
   const items = sources.map((s) => {
-    const label = SOURCE_LABEL[s.type] || 'Document';
+    const label = SOURCE_LABEL[s.type] || 'Source';
     const title = esc(s.title || `${label} #${s.id}`);
+    const meta = s.chunkIndex != null ? ` <span class="ai-src-meta">· section ${Number(s.chunkIndex) + 1}</span>` : '';
     const href = sourceHref(s, role);
     const inner = href
-      ? `<a href="${esc(href)}" target="_blank" rel="noopener">${title}</a>`
+      ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${title}</a>`
       : title;
-    return `<li>${icon('file')} <span class="ai-src-type">${esc(label)}:</span> ${inner}</li>`;
+    return `<li>${icon('file')} <span class="ai-src-type">${esc(label)}:</span> ${inner}${meta}</li>`;
   }).join('');
   return `<div class="ai-sources"><div class="ai-sources-head">Sources</div><ul>${items}</ul></div>`;
 }
@@ -69,15 +74,12 @@ function sourcesHTML(sources, role) {
  * @param {HTMLElement} opts.main #appMain
  * @param {object} opts.user authenticated identity (+merged profile)
  * @param {'student'|'faculty'|'admin'} opts.role
- * @param {object} opts.profile academic/context profile passed to aiService
  */
-export function renderAssistant({ main, user, role, profile }) {
-  const ownerUid = user.uid || 'anon';
-  let activeChatId = null;
+export function renderAssistant({ main, user, role }) {
+  let activeId = null;         // server conversation id of the open thread
+  let conversations = [];      // cached list for the sidebar
   let busy = false;
-  // Server-side conversation id for the active local chat (threads memory).
-  // Map<localChatId, serverConversationId>.
-  const convoIds = new Map();
+  let lastFailed = null;       // { text } of the last message that errored (retry)
 
   main.innerHTML = `
     <div class="ai-layout">
@@ -95,7 +97,7 @@ export function renderAssistant({ main, user, role, profile }) {
         <div class="ai-scroll" id="aiScroll"></div>
         <div class="ai-composer-wrap">
           <div class="ai-composer">
-            <textarea id="aiInput" rows="1" placeholder="Ask anything about your college management system…"></textarea>
+            <textarea id="aiInput" rows="1" placeholder="Ask about your classes, papers, announcements, events, documents…"></textarea>
             <button class="ai-send" id="aiSend" aria-label="Send" disabled>${icon('send')}</button>
           </div>
           <div class="ai-disclaimer">Answers are grounded in your accessible Askbook data and cite their sources. The assistant is read-only and may occasionally be wrong &mdash; verify important details.</div>
@@ -108,73 +110,125 @@ export function renderAssistant({ main, user, role, profile }) {
   const input = $('#aiInput', main);
   const sendBtn = $('#aiSend', main);
 
-  /* ---------- chat history ---------- */
-  function renderHistory() {
-    const q = ($('#chatSearch', main).value || '').trim().toLowerCase();
-    const chats = listChats(ownerUid).filter((c) => !q || c.title.toLowerCase().includes(q));
+  /* ============================ history sidebar ========================== */
+
+  async function loadHistory() {
     const list = $('#chatList', main);
-    if (!chats.length) {
-      list.innerHTML = `<div class="aih-empty">No chats yet. Start a new conversation.</div>`;
+    list.innerHTML = `<div class="aih-loading">${icon('loader')} Loading chats…</div>`;
+    const res = await listConversations(50);
+    if (!res.ok) {
+      list.innerHTML = `<div class="aih-error">Couldn't load chats. <button class="btn-link" id="retryHist">Retry</button></div>`;
+      const r = $('#retryHist', list);
+      if (r) r.addEventListener('click', loadHistory);
       return;
     }
-    list.innerHTML = chats.map((c) => `
-      <div class="aih-item ${c.id === activeChatId ? 'active' : ''}" data-chat="${c.id}">
+    conversations = res.conversations || [];
+    renderHistory();
+  }
+
+  function renderHistory() {
+    const q = ($('#chatSearch', main).value || '').trim().toLowerCase();
+    const items = conversations.filter((c) => !q || (c.title || '').toLowerCase().includes(q));
+    const list = $('#chatList', main);
+    if (!items.length) {
+      list.innerHTML = `<div class="aih-empty">${q ? 'No chats match your search.' : 'No conversations yet. Start a new chat.'}</div>`;
+      return;
+    }
+    list.innerHTML = items.map((c) => `
+      <div class="aih-item ${String(c.id) === String(activeId) ? 'active' : ''}" data-chat="${c.id}">
         ${icon('message')}
-        <span class="aih-title">${esc(c.title)}</span>
+        <span class="aih-title">${esc(c.title || 'Untitled chat')}</span>
+        <button class="btn-icon aih-rename" data-rename="${c.id}" aria-label="Rename chat">${icon('edit')}</button>
         <button class="btn-icon aih-del" data-del="${c.id}" aria-label="Delete chat">${icon('trash')}</button>
       </div>`).join('');
 
     $$('.aih-item', list).forEach((el) =>
       el.addEventListener('click', (e) => {
-        if (e.target.closest('[data-del]')) return;
-        openChat(el.dataset.chat);
-      })
-    );
+        if (e.target.closest('[data-del]') || e.target.closest('[data-rename]')) return;
+        openConversation(el.dataset.chat);
+      }));
+
+    $$('[data-rename]', list).forEach((btn) =>
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.rename;
+        const current = conversations.find((c) => String(c.id) === String(id));
+        const title = await promptDialog({
+          title: 'Rename conversation',
+          label: 'Conversation title',
+          value: current ? current.title : '',
+          confirmLabel: 'Save',
+        });
+        if (title == null) return;
+        const trimmed = String(title).trim();
+        if (!trimmed) return;
+        const res = await renameConversation(id, trimmed);
+        if (!res.ok) { toastError('Could not rename the conversation.'); return; }
+        if (current) current.title = res.conversation ? res.conversation.title : trimmed;
+        renderHistory();
+        toastSuccess('Conversation renamed.');
+      }));
+
     $$('[data-del]', list).forEach((btn) =>
       btn.addEventListener('click', async (e) => {
         e.stopPropagation();
-        const ok = await confirmDialog({ title: 'Delete chat?', message: 'This conversation will be removed.', confirmLabel: 'Delete' });
+        const id = btn.dataset.del;
+        const ok = await confirmDialog({
+          title: 'Delete conversation?',
+          message: 'This conversation and its messages will be permanently removed.',
+          confirmLabel: 'Delete',
+        });
         if (!ok) return;
-        deleteChat(btn.dataset.del);
-        if (activeChatId === btn.dataset.del) { activeChatId = null; renderWelcome(); }
+        const res = await deleteConversation(id);
+        if (!res.ok) { toastError('Could not delete the conversation.'); return; }
+        conversations = conversations.filter((c) => String(c.id) !== String(id));
+        if (String(activeId) === String(id)) { activeId = null; renderWelcome(); }
         renderHistory();
-      })
-    );
+        toastSuccess('Conversation deleted.');
+      }));
   }
 
-  /* ---------- conversation ---------- */
+  /* ============================== thread view ============================ */
+
   function renderWelcome() {
+    activeId = null;
     const prompts = suggestedPrompts(role);
     scroll.innerHTML = `
       <div class="ai-welcome">
         <div class="aiw-badge">${icon('sparkles')}</div>
         <h2>Ask anything about your college</h2>
-        <p>I answer using only the data you're allowed to see — your classes, notes, announcements and more.</p>
+        <p>I answer using only the Askbook data you're allowed to see — your classes, question papers, announcements, events and documents.</p>
         <div class="ai-suggestions">
           ${prompts.map((p) => `<button type="button" class="ai-suggestion" data-prompt="${esc(p)}">${icon('arrowRight')} ${esc(p)}</button>`).join('')}
         </div>
       </div>`;
     $$('.ai-suggestion', scroll).forEach((el) =>
-      el.addEventListener('click', () => { input.value = el.dataset.prompt; onSend(); })
-    );
+      el.addEventListener('click', () => { input.value = el.dataset.prompt; onSend(); }));
+    renderHistory();
   }
 
-  function renderThread(chat) {
-    scroll.innerHTML = `<div class="ai-thread" id="thread"></div>`;
-    const thread = $('#thread', scroll);
-    chat.messages.forEach((m) => thread.appendChild(bubble(m)));
-    scrollToBottom();
+  function ensureThread() {
+    let thread = $('#thread', scroll);
+    if (!thread) {
+      scroll.innerHTML = `<div class="ai-thread" id="thread"></div>`;
+      thread = $('#thread', scroll);
+    }
+    return thread;
   }
 
   function bubble(m) {
     const el = document.createElement('div');
     el.className = `ai-msg ${m.role}`;
-    const srcHtml = m.role === 'assistant' ? sourcesHTML(m.sources, role) : '';
+    const isAssistant = m.role === 'assistant';
+    // Assistant text -> safe markdown; user text -> escaped plain (renderMarkdown
+    // escapes first, so both are XSS-safe).
+    const bodyHtml = isAssistant ? renderMarkdown(m.text || m.content || '') : `<p>${esc(m.text || m.content || '')}</p>`;
+    const srcHtml = isAssistant ? sourcesHTML(m.sources, role) : '';
     el.innerHTML = `
-      <div class="ai-ava">${m.role === 'assistant' ? icon('sparkles') : esc(initials(user.name || 'You'))}</div>
+      <div class="ai-ava">${isAssistant ? icon('sparkles') : esc(initials(user.name || 'You'))}</div>
       <div style="flex:1">
-        <div class="ai-role">${m.role === 'assistant' ? 'Assistant' : 'You'}</div>
-        <div class="ai-body">${esc(m.text)}</div>
+        <div class="ai-role">${isAssistant ? 'Assistant' : 'You'}</div>
+        <div class="ai-body ai-md">${bodyHtml}</div>
         ${srcHtml}
       </div>`;
     return el;
@@ -193,75 +247,104 @@ export function renderAssistant({ main, user, role, profile }) {
     return el;
   }
 
-  function scrollToBottom() { scroll.scrollTop = scroll.scrollHeight; }
-
-  function openChat(id) {
-    const chat = getChat(id);
-    if (!chat) return;
-    activeChatId = id;
-    renderThread(chat);
-    renderHistory();
+  function retryBar(text) {
+    const el = document.createElement('div');
+    el.className = 'ai-retry';
+    el.innerHTML = `<button class="btn btn-sm" id="retryBtn">${icon('refresh')} Retry</button>`;
+    el.querySelector('#retryBtn').addEventListener('click', () => {
+      el.remove();
+      input.value = text;
+      onSend();
+    });
+    return el;
   }
 
-  /* ---------- send flow ---------- */
+  function scrollToBottom() { scroll.scrollTop = scroll.scrollHeight; }
+
+  async function openConversation(id) {
+    if (busy) return;
+    activeId = id;
+    renderHistory();
+    scroll.innerHTML = `<div class="ai-loading-thread">${icon('loader')} Loading conversation…</div>`;
+    const res = await getConversation(id);
+    if (!res.ok || !res.conversation) {
+      scroll.innerHTML = `<div class="ai-error-thread">Couldn't load this conversation. <button class="btn-link" id="reopen">Retry</button></div>`;
+      const r = $('#reopen', scroll);
+      if (r) r.addEventListener('click', () => openConversation(id));
+      return;
+    }
+    const thread = ensureThread();
+    thread.innerHTML = '';
+    (res.conversation.messages || []).forEach((m) => thread.appendChild(bubble(m)));
+    scrollToBottom();
+  }
+
+  /* =============================== send flow ============================= */
+
   async function onSend() {
     const text = input.value.trim();
     if (!text || busy) return;
+    lastFailed = null;
 
-    // Ensure a chat exists.
-    if (!activeChatId) {
-      const chat = createChat(ownerUid);
-      activeChatId = chat.id;
-    }
+    const thread = ensureThread();
+    // Remove welcome content if present.
+    const welcome = $('.ai-welcome', scroll);
+    if (welcome) { scroll.innerHTML = `<div class="ai-thread" id="thread"></div>`; }
+    const t = $('#thread', scroll);
 
-    const userMsg = { role: 'user', text, at: new Date().toISOString() };
-    appendMessage(activeChatId, userMsg);
-
-    // Render (fresh thread if we were on welcome).
-    let thread = $('#thread', scroll);
-    if (!thread) { renderThread(getChat(activeChatId)); thread = $('#thread', scroll); }
-    else thread.appendChild(bubble(userMsg));
-
+    t.appendChild(bubble({ role: 'user', text }));
     input.value = '';
     autoGrow();
-    updateSendState();
-    renderHistory();
-
-    // Typing indicator
     busy = true;
+    updateSendState();
+
     const typing = typingBubble();
-    thread.appendChild(typing);
+    t.appendChild(typing);
     scrollToBottom();
 
-    const answer = await ask({ text, conversationId: convoIds.get(activeChatId) || null });
-    // Remember the server conversation id so follow-up questions keep context.
-    if (answer && answer.conversationId != null) convoIds.set(activeChatId, answer.conversationId);
+    const answer = await ask({ text, conversationId: activeId || null });
     typing.remove();
-    appendMessage(activeChatId, answer);
-    thread.appendChild(bubble(answer));
+
+    // Thread the server conversation id (new conversations get one back).
+    const wasNew = !activeId;
+    if (answer && answer.conversationId != null) activeId = answer.conversationId;
+
+    t.appendChild(bubble({ role: 'assistant', text: answer.text, sources: answer.sources }));
+
+    // On error, offer a retry affordance.
+    if (answer && answer.error) {
+      lastFailed = { text };
+      t.appendChild(retryBar(text));
+    }
     scrollToBottom();
+
     busy = false;
-    renderHistory();
+    updateSendState();
+
+    // Refresh the sidebar so a newly-created conversation appears.
+    if (wasNew && activeId != null) { await loadHistory(); }
   }
 
-  /* ---------- composer behaviour ---------- */
+  /* ============================ composer behaviour ======================= */
+
   function autoGrow() {
     input.style.height = 'auto';
-    input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
   }
   function updateSendState() { sendBtn.disabled = input.value.trim() === '' || busy; }
 
   input.addEventListener('input', () => { autoGrow(); updateSendState(); });
   input.addEventListener('keydown', (e) => {
+    // Enter to send, Shift+Enter for newline.
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend(); }
   });
   sendBtn.addEventListener('click', onSend);
-  $('#newChat', main).addEventListener('click', () => { activeChatId = null; renderWelcome(); renderHistory(); input.focus(); });
+  $('#newChat', main).addEventListener('click', () => { if (!busy) { renderWelcome(); input.focus(); } });
   $('#chatSearch', main).addEventListener('input', renderHistory);
 
   // Initial state
   renderWelcome();
-  renderHistory();
+  loadHistory();
   updateSendState();
   input.focus();
 }

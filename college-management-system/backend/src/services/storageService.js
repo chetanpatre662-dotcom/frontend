@@ -122,6 +122,25 @@ async function upload({ buffer, mimeType, classId, entityType }) {
 }
 
 /**
+ * Upload a STANDALONE AI knowledge-base document (not tied to a class). Stored
+ * under `ai-documents/{fileId}`. Returns { fileId, storagePath, mimeType, size }.
+ * @param {object} p { buffer, mimeType }
+ */
+async function uploadStandalone({ buffer, mimeType }) {
+  requireEnabled();
+  validate({ buffer, mimeType });
+  const fileId = newFileId();
+  const storagePath = `ai-documents/${fileId}`;
+  const bucket = getBucket();
+  await bucket.file(storagePath).save(buffer, {
+    resumable: false,
+    contentType: mimeType || 'application/octet-stream',
+    metadata: { metadata: { entityType: 'ai_document' } },
+  });
+  return { fileId, storagePath, mimeType: mimeType || 'application/octet-stream', size: buffer.length };
+}
+
+/**
  * Download an object's raw bytes server-side (Admin SDK). Used by the AI
  * document-ingestion pipeline for text extraction. Access must be authorized by
  * the caller BEFORE calling this (ingestion runs as an admin-triggered job).
@@ -169,6 +188,7 @@ module.exports = {
   newFileId,
   validate,
   upload,
+  uploadStandalone,
   getSignedDownloadUrl,
   downloadBuffer,
   remove,
