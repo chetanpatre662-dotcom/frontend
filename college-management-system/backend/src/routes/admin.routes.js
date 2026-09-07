@@ -19,14 +19,23 @@
 'use strict';
 
 const express = require('express');
+const multer = require('multer');
 const { requireAuth } = require('../middleware/auth');
 const { requireAdmin } = require('../middleware/requireAdmin');
 const adminService = require('../services/adminService');
 const subjectService = require('../services/subjectService');
 const catalogService = require('../services/catalogService');
 const classAdminService = require('../services/classAdminService');
+const timetableService = require('../services/timetableService');
+const timetableExtractionService = require('../services/timetableExtractionService');
+const ApiError = require('../utils/ApiError');
 
 const router = express.Router();
+
+// In-memory upload for timetable image/PDF extraction (never stored to disk).
+// 25 MB mirrors storageService.MAX_BYTES.
+const ttUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const TT_IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 // All admin routes require an authenticated admin.
 router.use(requireAuth, requireAdmin);
@@ -283,6 +292,101 @@ router.delete('/classes/:id', async (req, res, next) => {
   try {
     const result = await classAdminService.deleteClass(req.params.id);
     res.status(200).json({ success: true, message: 'Class deleted.', ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* Timetable (admin): extract -> review -> save. Scoped to the same    */
+/* (program, branch, semester) group used by Subjects. Extraction NEVER */
+/* auto-publishes — it returns a draft the admin reviews + confirms.    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /api/admin/timetables/extract  (multipart OR json)
+ * Fields: program, branch, semester, inputType(image|pdf|text|url),
+ *         text? (for text), url? (for url), file? (for image/pdf).
+ * Returns a DRAFT: { group, entries, invalid, conflicts, subjects, extractedCount }.
+ */
+router.post('/timetables/extract', ttUpload.single('file'), async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const inputType = String(body.inputType || '').toLowerCase();
+    const group = { program: body.program, branch: body.branch, semester: body.semester };
+
+    if (!['image', 'pdf', 'text', 'url'].includes(inputType)) {
+      throw new ApiError(400, 'inputType must be one of image, pdf, text, url.', { code: 'VALIDATION_ERROR' });
+    }
+
+    const params = { group, inputType };
+    if (inputType === 'image' || inputType === 'pdf') {
+      const file = req.file;
+      if (!file || !file.buffer || !file.buffer.length) {
+        throw new ApiError(400, 'A file is required for image/PDF extraction.', { code: 'VALIDATION_ERROR' });
+      }
+      if (inputType === 'image' && !TT_IMAGE_MIME.has(file.mimetype)) {
+        throw new ApiError(415, 'Unsupported image type. Allowed: JPEG, PNG, WebP, GIF.', { code: 'UNSUPPORTED_TYPE' });
+      }
+      if (inputType === 'pdf' && file.mimetype !== 'application/pdf') {
+        throw new ApiError(415, 'A PDF file is required.', { code: 'UNSUPPORTED_TYPE' });
+      }
+      params.buffer = file.buffer;
+      params.mimeType = file.mimetype;
+    } else if (inputType === 'text') {
+      params.text = String(body.text || '');
+    } else if (inputType === 'url') {
+      params.url = String(body.url || '');
+    }
+
+    const draft = await timetableExtractionService.extractDraft(params);
+    if (draft && draft.error) {
+      throw new ApiError(400, draft.error, { code: 'EXTRACTION_ERROR' });
+    }
+    res.status(200).json({ success: true, draft });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** GET /api/admin/timetables?program=&branch=&semester= — the saved timetable. */
+router.get('/timetables', async (req, res, next) => {
+  try {
+    const timetable = await timetableService.getTimetableForGroup({
+      program: req.query.program, branch: req.query.branch, semester: req.query.semester,
+    });
+    res.status(200).json({ success: true, timetable });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/admin/timetables — save/replace a group's REVIEWED timetable.
+ * Body: { program, branch, semester, title?, sourceKind?, entries:[...] }.
+ */
+router.put('/timetables', async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const group = { program: body.program, branch: body.branch, semester: body.semester };
+    const result = await timetableService.saveTimetable(group, body.entries || [], {
+      title: body.title || null,
+      sourceKind: body.sourceKind || 'manual',
+      createdBy: req.dbUser ? req.dbUser.id : null,
+    });
+    res.status(200).json({ success: true, message: 'Timetable saved.', ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** DELETE /api/admin/timetables?program=&branch=&semester= — remove a timetable. */
+router.delete('/timetables', async (req, res, next) => {
+  try {
+    const result = await timetableService.deleteTimetable({
+      program: req.query.program, branch: req.query.branch, semester: req.query.semester,
+    });
+    res.status(200).json({ success: true, message: result.deleted ? 'Timetable deleted.' : 'No timetable to delete.', ...result });
   } catch (err) {
     next(err);
   }

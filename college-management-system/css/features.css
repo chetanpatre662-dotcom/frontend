@@ -435,6 +435,18 @@
 .ai-typing span:nth-child(3) { animation-delay: 0.3s; }
 @keyframes ai-bounce { 0%,80%,100% { transform: scale(0.6); opacity: 0.5; } 40% { transform: scale(1); opacity: 1; } }
 
+/* Progressive processing state: animated dots + a rotating status label. */
+.ai-processing { display: inline-flex; align-items: center; gap: 10px; padding-top: 4px; }
+.ai-processing .ai-typing { padding-top: 0; }
+.ai-proc-label { font-size: var(--fs-sm); color: var(--gray-500); font-style: italic; }
+
+/* Generic grounding hint under an assistant answer (no internal tool names). */
+.ai-ground-hint {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;
+  font-size: var(--fs-xs); color: var(--gray-500);
+}
+.ai-ground-hint svg { width: 13px; height: 13px; color: var(--gray-400); }
+
 /* Composer */
 .ai-composer-wrap { padding: var(--sp-4) var(--sp-6) var(--sp-6); background: var(--bg); }
 .ai-composer {
@@ -682,8 +694,12 @@
 .rm-label svg { width: 13px; height: 13px; }
 
 .rail-section { margin-bottom: var(--sp-4); }
+.rail-section:last-child { margin-bottom: 0; }
 .rail-sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-2); font-weight: 700; font-size: var(--fs-sm); color: var(--gray-700); }
 .rail-sec-head .btn { padding: 2px 10px; font-size: var(--fs-xs); }
+/* A metric grid nested inside a rail-section (e.g. admin "System" block) should
+   not add its own bottom margin — the parent .rail-section already spaces it. */
+.rail-section > .rail-metrics:last-child { margin-bottom: 0; }
 
 .rail-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-2); }
 .rail-qa {

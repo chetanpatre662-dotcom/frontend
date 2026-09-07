@@ -110,13 +110,23 @@ function buildSystemPrompt(user, profileHint) {
     `- For document/content questions (what a note/paper/assignment CONTAINS,`,
     `  repeated/similar questions across papers, topic analysis), call`,
     `  search_college_documents and ground your answer in the returned excerpts.`,
+    `  This content may have been extracted from PDFs, images or linked pages —`,
+    `  treat the returned excerpts as the authoritative content regardless of the`,
+    `  original format.`,
+    `- For timetable / class-schedule questions ("my Monday classes", "my next`,
+    `  class", "tomorrow's first class", "what do I have at 10"), call`,
+    `  get_my_timetable. Compute "next"/"tomorrow" from the returned entries.`,
     `- You may call multiple tools and combine their results. For a specific`,
-    `  class's content, first call get_my_classes to find the classId.`,
+    `  class's content, first call get_my_classes to find the classId. For a`,
+    `  question like "tomorrow's first class and explain its Unit 1", call`,
+    `  get_my_timetable first, then search_college_documents for that subject.`,
     ``,
     `STRICT GROUNDING / ANTI-HALLUCINATION RULES`,
     `- NEVER invent college-specific information: no fake announcements, events,`,
-    `  assignments, faculty details, dates, timetables, marks, attendance, or`,
-    `  documents. Askbook does not track attendance or marks — if asked, say that`,
+    `  assignments, faculty details, dates, timetable entries, marks, attendance,`,
+    `  or documents. Report timetable ONLY from get_my_timetable results; if it`,
+    `  returns no entries, say the timetable is not available in Askbook yet.`,
+    `- Askbook does not track attendance or marks — if asked, say that`,
     `  information is not available in Askbook.`,
     `- If a tool returns no results, say the information is not available in`,
     `  Askbook rather than guessing. Do not pretend a document exists.`,
@@ -228,6 +238,8 @@ async function ask({ user, message, conversationId, attachment } = {}) {
       sources: [],
       conversationId: conversationId || null,
       degraded: true,
+      toolUsed: false,
+      ragUsed: false,
     };
   }
 
@@ -280,6 +292,15 @@ async function ask({ user, message, conversationId, attachment } = {}) {
   const ctx = { user };
   const collectedSources = [];
   const toolsUsed = [];
+  let ragUsed = false;
+  let ragChunks = 0;
+
+  // Structured observability: request start (no keys/tokens/PII — role + a
+  // coarse message length only, never the message text or user identity).
+  const t0 = Date.now();
+  console.info('[ai] request.start', JSON.stringify({
+    role: user.role, conversationId: convo.id, msgLen: text.length, hasAttachment: Boolean(attach),
+  }));
 
   // ---- 3) Tool-calling loop (bounded) ----
   let answer = '';
@@ -305,11 +326,21 @@ async function ask({ user, message, conversationId, attachment } = {}) {
       const responseParts = [];
       for (const call of calls) {
         toolsUsed.push(call.name);
+        const tToolStart = Date.now();
         // eslint-disable-next-line no-await-in-loop
         const result = await executeTool(call.name, ctx, call.args || {});
-        // Harvest source references from RAG results for the UI.
-        if (call.name === 'search_college_documents' && result && Array.isArray(result.sources)) {
-          for (const s of result.sources) collectedSources.push(s);
+        // Structured log per tool call (tool NAME only — never the args, which
+        // could contain user-typed content, nor the result rows).
+        console.info('[ai] tool.call', JSON.stringify({
+          tool: call.name, ms: Date.now() - tToolStart, ok: !(result && result.error),
+        }));
+        // Harvest source references from RAG results for the UI + set ragUsed.
+        if (call.name === 'search_college_documents' && result) {
+          if (result.searched) ragUsed = true;
+          if (Array.isArray(result.chunks)) ragChunks += result.chunks.length;
+          if (Array.isArray(result.sources)) {
+            for (const s of result.sources) collectedSources.push(s);
+          }
         }
         responseParts.push({
           functionResponse: { name: call.name, response: result || {} },
@@ -327,7 +358,11 @@ async function ask({ user, message, conversationId, attachment } = {}) {
       }
     }
   } catch (err) {
-    console.error('[ai] orchestrator generation failed:', err && err.message);
+    // Structured error log (code + message only — never keys/tokens/message text).
+    console.error('[ai] request.error', JSON.stringify({
+      role: user.role, conversationId: convo.id, ms: Date.now() - t0,
+      code: (err && err.code) || null, message: err && err.message,
+    }));
     // Persist the user's message so the thread isn't lost, then return a
     // friendly error (never leak internals).
     try {
@@ -339,7 +374,7 @@ async function ask({ user, message, conversationId, attachment } = {}) {
         : err && err.code === 'AI_RATE_LIMITED'
         ? 'The assistant is busy right now. Please try again in a moment.'
         : 'Sorry, I ran into a problem answering that. Please try again.';
-    return { answer: friendly, sources: [], conversationId: convo.id, error: true };
+    return { answer: friendly, sources: [], conversationId: convo.id, error: true, toolUsed: false, ragUsed: false };
   }
 
   if (!answer) {
@@ -350,6 +385,21 @@ async function ask({ user, message, conversationId, attachment } = {}) {
 
   // Deduplicate sources (by type:id).
   const sources = dedupeSources(collectedSources);
+  const uniqueTools = Array.from(new Set(toolsUsed));
+  const toolUsed = uniqueTools.length > 0;
+
+  // Structured observability: request complete. Tool names + counts only —
+  // never the answer text, message text, user identity, keys, or tokens.
+  console.info('[ai] request.complete', JSON.stringify({
+    role: user.role,
+    conversationId: convo.id,
+    ms: Date.now() - t0,
+    toolUsed,
+    tools: uniqueTools,
+    ragUsed,
+    ragChunks,
+    sources: sources.length,
+  }));
 
   // ---- 4) Persist the turn (conversation memory) ----
   try {
@@ -364,7 +414,7 @@ async function ask({ user, message, conversationId, attachment } = {}) {
       role: 'assistant',
       content: answer,
       sources,
-      metadata: { toolsUsed: Array.from(new Set(toolsUsed)) },
+      metadata: { toolsUsed: uniqueTools, ragUsed },
     });
     await aiRepository.touchConversation(convo.id);
   } catch (err) {
@@ -376,7 +426,9 @@ async function ask({ user, message, conversationId, attachment } = {}) {
     answer,
     sources,
     conversationId: convo.id,
-    toolsUsed: Array.from(new Set(toolsUsed)),
+    toolsUsed: uniqueTools,
+    toolUsed,
+    ragUsed,
   };
 }
 

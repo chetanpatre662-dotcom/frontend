@@ -30,23 +30,27 @@
 .sidebar .sb-brand {
   display: flex;
   align-items: center;
-  gap: var(--sp-3);
+  gap: 12px;
   padding: var(--sp-4) var(--sp-5);
   border-bottom: 1px solid var(--border);
   height: var(--header-h);
 }
 .sidebar .sb-logo {
-  width: 38px; height: 38px;
+  height: 48px;
   border-radius: 9px;
   background: transparent;
   display: grid; place-items: center;
   flex-shrink: 0;
   overflow: hidden;
 }
-.sidebar .sb-logo svg { width: 20px; height: 20px; color: #fff; }
-/* Real PNG college logo: contain within the badge, crisp + vertically centered. */
+.sidebar .sb-logo svg { width: 26px; height: 26px; color: #fff; }
+/* Real PNG college logo: larger (48px), undistorted, vertically centered.
+   width:auto + object-fit:contain preserve the logo's aspect ratio. */
 .sidebar .sb-logo img {
-  width: 100%; height: 100%;
+  height: 48px;
+  max-height: 52px;
+  width: auto;
+  max-width: 100%;
   object-fit: contain;
   display: block;
 }

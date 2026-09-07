@@ -34,7 +34,11 @@ const portalService = require('./portalService');
 const announcementService = require('./announcementService');
 const eventService = require('./eventService');
 const profileService = require('./profileService');
+const adminService = require('./adminService'); // used by get_admin_stats (admin only)
 const ragService = require('./ragService'); // used by search_college_documents
+const timetableService = require('./timetableService'); // used by get_my_timetable
+const studentRepository = require('../repositories/studentRepository');
+const facultyRepository = require('../repositories/facultyRepository');
 
 /* --------------------------------- helpers -------------------------------- */
 
@@ -50,6 +54,55 @@ function textMatch(item, q, fields) {
   if (!q) return true;
   const needle = String(q).toLowerCase();
   return fields.some((f) => String(item[f] || '').toLowerCase().includes(needle));
+}
+
+/**
+ * Aggregate one content type (assignment | project) across every class the
+ * current user is authorized to access. Reuses classService (to list the user's
+ * own classes) and classContentService.list (which re-runs the per-class access
+ * gate) — so a user only ever sees content from their own classes. Bounded to
+ * avoid unbounded fan-out. Returns { items, classesScanned }.
+ */
+async function aggregateClassContent(user, entityType, { maxClasses = 25, maxItems = 50 } = {}) {
+  let classes;
+  if (user.role === 'student') {
+    classes = await classService.listForStudent(user);
+  } else if (user.role === 'faculty' || user.role === 'admin') {
+    classes = await classService.listForFaculty(user);
+  } else {
+    classes = [];
+  }
+  const active = classes.filter((c) => c.status !== 'archived').slice(0, maxClasses);
+
+  const items = [];
+  for (const c of active) {
+    if (items.length >= maxItems) break;
+    let contentRows = [];
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      contentRows = await classContentService.list(user, c.id, entityType);
+    } catch {
+      contentRows = []; // a class the user can't access is simply skipped
+    }
+    for (const it of contentRows) {
+      if (items.length >= maxItems) break;
+      items.push({
+        id: it.id,
+        title: it.title,
+        description: it.description ? String(it.description).slice(0, 240) : null,
+        dueDate: it.dueDate || null,
+        classId: c.id,
+        class: c.subject || c.title || null,
+        course: c.course || c.program || null,
+        branch: c.branch || null,
+        semester: c.semester != null ? c.semester : null,
+        hasFile: Boolean(it.file && it.file.id),
+        fileId: it.file && it.file.id ? it.file.id : null,
+        createdAt: it.createdAt,
+      });
+    }
+  }
+  return { items, classesScanned: active.length };
 }
 
 /* ---------------------------------- tools --------------------------------- */
@@ -266,6 +319,68 @@ const TOOLS = {
     },
   },
 
+  /* ----------------------------- assignments ---------------------------- */
+  get_my_assignments: {
+    declaration: {
+      name: 'get_my_assignments',
+      description:
+        "List the assignments across ALL of the CURRENT user's classes (student: " +
+        'their course+branch+semester classes; faculty: the classes they own). ' +
+        'Use for "my assignments", "pending assignments", "assignments due". ' +
+        'Optionally filter by a keyword or restrict to items that still have a ' +
+        'future due date. Returns title, class, due date, and whether a file is ' +
+        'attached. If none are found, say so — do not invent assignments.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Keyword to match in the title/description.' },
+          upcomingOnly: { type: 'boolean', description: 'Only assignments with a due date today or later (default false).' },
+          limit: { type: 'integer', description: 'Max results (default 20, max 50).' },
+        },
+      },
+    },
+    async execute(ctx, args = {}) {
+      const { items } = await aggregateClassContent(ctx.user, 'assignment');
+      let list = items;
+      if (args.query) list = list.filter((a) => textMatch(a, args.query, ['title', 'description', 'class']));
+      if (args.upcomingOnly) {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        list = list.filter((a) => a.dueDate && new Date(a.dueDate).getTime() >= today.getTime());
+      }
+      const limit = clampInt(args.limit, 20, 1, 50);
+      const sliced = list.slice(0, limit);
+      return { count: sliced.length, totalMatched: list.length, assignments: sliced };
+    },
+  },
+
+  /* ------------------------------- projects ----------------------------- */
+  get_my_projects: {
+    declaration: {
+      name: 'get_my_projects',
+      description:
+        "List the projects across ALL of the CURRENT user's classes (student: " +
+        'their course+branch+semester classes; faculty: the classes they own). ' +
+        'Use for "my projects", "project work". Optionally filter by a keyword. ' +
+        'Returns title, class, due date, and whether a file is attached. If none ' +
+        'are found, say so — do not invent projects.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Keyword to match in the title/description.' },
+          limit: { type: 'integer', description: 'Max results (default 20, max 50).' },
+        },
+      },
+    },
+    async execute(ctx, args = {}) {
+      const { items } = await aggregateClassContent(ctx.user, 'project');
+      let list = items;
+      if (args.query) list = list.filter((p) => textMatch(p, args.query, ['title', 'description', 'class']));
+      const limit = clampInt(args.limit, 20, 1, 50);
+      const sliced = list.slice(0, limit);
+      return { count: sliced.length, totalMatched: list.length, projects: sliced };
+    },
+  },
+
   /* --------------------------- class content ---------------------------- */
   get_class_content: {
     declaration: {
@@ -319,6 +434,92 @@ const TOOLS = {
           createdAt: it.createdAt,
         })),
       };
+    },
+  },
+
+  /* ---------------------------- admin stats ----------------------------- */
+  get_admin_stats: {
+    declaration: {
+      name: 'get_admin_stats',
+      description:
+        'ADMIN ONLY. Get real Askbook system statistics: total users, students, ' +
+        'faculty, admins, pending faculty/admin approvals, total classes and ' +
+        'subjects. Use for "how many students", "system stats", "pending ' +
+        'approvals". Returns exact counts from the database — never estimate.',
+      parameters: { type: 'object', properties: {} },
+    },
+    async execute(ctx) {
+      // Hard role gate: only an admin may ever see system-wide counts. This is
+      // the SAME rule the requireAdmin middleware enforces on the REST route;
+      // duplicated here because the model could request this tool for any user.
+      if (!ctx.user || ctx.user.role !== 'admin') {
+        return { error: 'System statistics are only available to administrators.' };
+      }
+      const stats = await adminService.getStats();
+      return {
+        totalUsers: stats.totalUsers ?? 0,
+        students: stats.students ?? 0,
+        faculty: stats.faculty ?? 0,
+        admins: stats.admins ?? 0,
+        pendingFaculty: stats.pendingFaculty ?? 0,
+        pendingAdmins: stats.pendingAdmins ?? 0,
+        classes: stats.classes ?? 0,
+        subjects: stats.subjects ?? 0,
+      };
+    },
+  },
+
+  /* ------------------------------ timetable ----------------------------- */
+  get_my_timetable: {
+    declaration: {
+      name: 'get_my_timetable',
+      description:
+        "Get the CURRENT user's weekly class timetable. For a student this is the " +
+        'timetable for their own course+branch+semester; for a faculty it is the ' +
+        'slots they teach. Use for "my timetable", "my Monday classes", "my next ' +
+        'class", "what class do I have at 10". Optionally filter to one weekday. ' +
+        'Returns day, start/end time, subject, faculty and room. If no timetable ' +
+        'exists, say it is not available in Askbook — never invent classes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          day: {
+            type: 'string',
+            description: 'Optional weekday to filter to, e.g. "Monday" or "Tue". Omit for the full week.',
+          },
+        },
+      },
+    },
+    async execute(ctx, args = {}) {
+      const { user } = ctx;
+      // Identity is ALWAYS derived from the authenticated user — never args.
+      const dayOfWeek = args.day != null && args.day !== '' ? timetableService.parseDay(args.day) : null;
+
+      if (user.role === 'student') {
+        const student = await studentRepository.findByUserId(user.id);
+        if (!student) return { error: 'Your student profile is incomplete, so no timetable can be shown.' };
+        const tt = await timetableService.getForStudent(student, { dayOfWeek });
+        return {
+          scope: 'student',
+          program: tt.program, branch: tt.branch, semester: tt.semester,
+          exists: tt.exists, count: tt.entries.length, entries: tt.entries,
+        };
+      }
+      if (user.role === 'faculty') {
+        const faculty = await facultyRepository.findByUserId(user.id);
+        if (!faculty) return { error: 'Your faculty profile is incomplete, so no timetable can be shown.' };
+        const tt = await timetableService.getForFaculty(faculty, { dayOfWeek });
+        return { scope: 'faculty', exists: tt.exists, count: tt.entries.length, entries: tt.entries };
+      }
+      if (user.role === 'admin') {
+        // Admins don't have a personal timetable; guide them to query a group.
+        return {
+          scope: 'admin',
+          note: 'Admins can view any group timetable from the Academic Structure page. There is no personal admin timetable.',
+          entries: [],
+        };
+      }
+      return { error: 'No timetable is available for this account.' };
     },
   },
 

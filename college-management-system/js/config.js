@@ -16,10 +16,43 @@ export const APP = {
   COLLEGE_FULL: 'Satpuda College of Engineering and Polytechnic',
   // Sub-brand / co-brand tag rendered as a refined badge next to the name.
   COLLEGE_SUB: 'SCEP',
-  // Local Askbook logo asset (app-root-relative; use resolvePath() for links).
-  COLLEGE_LOGO: './assets/logos/askbook.png',
+  // Local Askbook logo asset. Resolved at runtime relative to THIS module's URL
+  // (see COLLEGE_LOGO getter below) so it works from any page depth AND under
+  // any deployment base (local `/college-management-system/`, prod `/askbook/`)
+  // without a hardcoded leading-slash path that 404s in one of them.
+  COLLEGE_LOGO_FILE: 'assets/logos/askbook.png',
   VERSION: '1.0.0-frontend',
 };
+
+/**
+ * Resolve an asset path (relative to the app root) into an absolute URL that is
+ * correct regardless of the current page's folder depth or the deployment base.
+ *
+ * This module always lives at `<appRoot>/js/config.js`. `import.meta.url` gives
+ * that absolute URL, so `../<path>` relative to it always points at the real
+ * asset — whether the app is served from `/college-management-system/` (Live
+ * Server) or `/askbook/` (production). No leading-slash guesswork.
+ *
+ * @param {string} rootRelative e.g. 'assets/logos/askbook.png'
+ * @returns {string} absolute URL string
+ */
+export function assetUrl(rootRelative) {
+  const clean = String(rootRelative || '').replace(/^\.?\//, '');
+  try {
+    // config.js is at <root>/js/ ; go up one level to reach <root>.
+    return new URL(`../${clean}`, import.meta.url).href;
+  } catch {
+    // Extremely defensive fallback (non-module contexts): relative from root.
+    return `./${clean}`;
+  }
+}
+
+// Backwards-compatible accessor: existing callers read APP.COLLEGE_LOGO. It now
+// returns the correctly-resolved absolute URL computed from this module's URL.
+Object.defineProperty(APP, 'COLLEGE_LOGO', {
+  enumerable: true,
+  get() { return assetUrl(APP.COLLEGE_LOGO_FILE); },
+});
 
 /**
  * Backend configuration. The app is fully backed by the real Node.js/Express +

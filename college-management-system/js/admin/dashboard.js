@@ -1,8 +1,9 @@
 /**
  * admin/dashboard.js — Unified Admin home: AI Assistant (primary, chat-first)
- * + a secondary dashboard rail with real user/system counts and management
- * shortcuts. Counts come from GET /api/admin/stats (PostgreSQL). No mock data.
- * Merged from the old admin overview + assistant.
+ * + a secondary dashboard rail with real user/system counts, quick actions and
+ * management shortcuts. Counts come from GET /api/admin/stats (PostgreSQL).
+ * Matches the exact structural pattern of faculty/dashboard.js and
+ * student/dashboard.js so all three panels share one coherent layout.
  */
 import { ROUTES, resolvePath } from '../config.js';
 import { esc } from '../common/dom.js';
@@ -14,10 +15,17 @@ import { getAdminStats } from '../services/adminService.js';
 
 bootstrapAdmin({ activeId: 'dashboard', title: 'Home' }).then((ctx) => { if (ctx) init(ctx); });
 
+function greetingWord() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
 function init({ main, user }) {
-  const adminName = user.name || 'Administrator';
-  const greeting = `<span class="ai-greet-hi">Administration</span>
-    <span class="ai-greet-sub">Signed in as <strong>${esc(adminName)}</strong> &mdash; ask about college data or jump to management.</span>`;
+  const firstName = (user.name || 'Administrator').split(' ')[0];
+  const greeting = `<span class="ai-greet-hi">${esc(greetingWord())}, ${esc(firstName)}</span>
+    <span class="ai-greet-sub">Admin &mdash; ask about college data or jump to management.</span>`;
 
   renderAssistant({
     main,
@@ -39,46 +47,63 @@ async function renderRail(container) {
   }
 
   const s = res.stats || {};
+
   container.innerHTML = `
     <div class="rail-metrics">
-      ${metric('users', s.totalUsers ?? 0, 'Total users', null)}
-      ${metric('graduation', s.students ?? 0, 'Students', ROUTES.ADMIN.STUDENTS)}
-      ${metric('user', s.faculty ?? 0, 'Faculty', ROUTES.ADMIN.FACULTY)}
-      ${metric('shield', s.admins ?? 0, 'Admins', null)}
-      ${metric('checkCircle', s.pendingFaculty ?? 0, 'Pending', ROUTES.ADMIN.FACULTY)}
-      ${metric('classes', s.classes ?? 0, 'Classes', ROUTES.ADMIN.CLASSES)}
-      ${metric('book', s.subjects ?? 0, 'Subjects', ROUTES.ADMIN.COURSES)}
+      ${metricLink('users',      s.totalUsers    ?? 0, 'Total users',  null)}
+      ${metricLink('graduation', s.students      ?? 0, 'Students',     ROUTES.ADMIN.STUDENTS)}
+      ${metricLink('user',       s.faculty       ?? 0, 'Faculty',      ROUTES.ADMIN.FACULTY)}
+      ${metricLink('shield',     s.admins        ?? 0, 'Admins',       null)}
     </div>
 
     <div class="rail-section">
-      <div class="rail-sec-head"><span>Manage</span></div>
-      <div class="card"><div class="card-body">
-        <div class="list-flush">
-          ${link('Student directory', ROUTES.ADMIN.STUDENTS, 'graduation')}
-          ${link('Faculty accounts', ROUTES.ADMIN.FACULTY, 'user')}
-          ${link('Requests', ROUTES.ADMIN.REQUESTS, 'bell')}
-          ${link('Classes', ROUTES.ADMIN.CLASSES, 'classes')}
-          ${link('Courses & branches', ROUTES.ADMIN.COURSES, 'book')}
-          ${link('AI documents', ROUTES.ADMIN.AI_DOCUMENTS, 'file')}
-          ${link('System settings', ROUTES.ADMIN.SETTINGS, 'settings')}
-        </div>
-      </div></div>
+      <div class="rail-sec-head"><span>System</span></div>
+      <div class="rail-metrics">
+        ${metricLink('checkCircle', s.pendingFaculty ?? 0, 'Pending faculty', ROUTES.ADMIN.REQUESTS)}
+        ${metricLink('shield',      s.pendingAdmins  ?? 0, 'Pending admins',  ROUTES.ADMIN.REQUESTS)}
+        ${metricLink('classes',     s.classes        ?? 0, 'Classes',         ROUTES.ADMIN.CLASSES)}
+        ${metricLink('book',        s.subjects       ?? 0, 'Subjects',        ROUTES.ADMIN.COURSES)}
+      </div>
+    </div>
+
+    <div class="rail-section">
+      <div class="rail-sec-head"><span>Quick actions</span></div>
+      <div class="rail-actions">
+        ${qa('graduation', 'Students',   ROUTES.ADMIN.STUDENTS)}
+        ${qa('user',       'Faculty',    ROUTES.ADMIN.FACULTY)}
+        ${qa('bell',       'Requests',   ROUTES.ADMIN.REQUESTS)}
+        ${qa('classes',    'Classes',    ROUTES.ADMIN.CLASSES)}
+        ${qa('book',       'Courses',    ROUTES.ADMIN.COURSES)}
+        ${qa('file',       'AI Docs',    ROUTES.ADMIN.AI_DOCUMENTS)}
+        ${qa('settings',   'Settings',   ROUTES.ADMIN.SETTINGS)}
+        ${qa('shield',     'Admins',     ROUTES.ADMIN.MANAGEMENT)}
+      </div>
     </div>
   `;
 }
 
-function metric(iconName, value, label, route) {
-  const inner = `<div class="rail-metric"><div class="rm-value">${esc(String(value))}</div><div class="rm-label">${icon(iconName)} ${esc(label)}</div></div>`;
-  return route ? `<a href="${resolvePath(route)}" class="rail-metric-link">${inner}</a>` : inner;
+/** Metric card — linked when route is provided, plain card otherwise. */
+function metricLink(iconName, value, label, route) {
+  const inner = `
+    <div class="rail-metric">
+      <div class="rm-value">${esc(String(value))}</div>
+      <div class="rm-label">${icon(iconName)} ${esc(label)}</div>
+    </div>`;
+  return route
+    ? `<a href="${resolvePath(route)}" class="rail-metric-link">${inner}</a>`
+    : inner;
 }
 
-function link(label, route, iconName) {
-  return `<a class="list-link" href="${resolvePath(route)}"><span class="lr-icon">${icon(iconName)}</span>
-    <span class="lr-title">${esc(label)}</span><span class="ll-chev">${icon('chevronRight')}</span></a>`;
+/** Quick-action button — exactly the same component faculty uses. */
+function qa(iconName, label, route) {
+  return `<a class="rail-qa" href="${resolvePath(route)}">
+    <span class="qa-icon">${icon(iconName)}</span>${esc(label)}
+  </a>`;
 }
 
 function errorHTML(message) {
   return `<div class="card"><div class="card-body" style="text-align:center;padding:16px">
     <div class="text-muted" style="margin-bottom:12px">${icon('alert')} ${esc(message)}</div>
-    <button class="btn btn-primary btn-sm" id="retryStats">${icon('arrowRight')} Retry</button></div></div>`;
+    <button class="btn btn-primary btn-sm" id="retryStats">${icon('arrowRight')} Retry</button>
+  </div></div>`;
 }

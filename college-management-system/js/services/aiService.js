@@ -95,6 +95,10 @@ export async function ask({ text, conversationId, file } = {}) {
       conversationId: res.conversationId != null ? res.conversationId : conversationId || null,
       toolsUsed: res.toolsUsed || [],
       degraded: Boolean(res.degraded),
+      // Additive metadata for UI hints (source/tool indicators). Safe booleans;
+      // no internal tool names are exposed.
+      toolUsed: Boolean(res.toolUsed),
+      ragUsed: Boolean(res.ragUsed),
     });
   } catch (e) {
     // Friendly, non-leaky error messages by status.

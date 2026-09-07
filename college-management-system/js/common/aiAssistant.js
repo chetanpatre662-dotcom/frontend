@@ -332,17 +332,44 @@ export function renderAssistant({ main, user, role, dashboard = null, greeting =
     const attachHtml = (!isAssistant && attachName)
       ? `<div class="ai-msg-attach">${icon('paperclip')} <span>${esc(attachName)}</span></div>`
       : '';
+    // Generic grounding hint for assistant answers (no internal tool names).
+    let hintHtml = '';
+    if (isAssistant) {
+      const hasSources = Array.isArray(m.sources) && m.sources.length > 0;
+      if (m.ragUsed || hasSources) {
+        hintHtml = `<div class="ai-ground-hint">${icon('book')} Answered from Askbook college material</div>`;
+      } else if (m.toolUsed) {
+        hintHtml = `<div class="ai-ground-hint">${icon('checkCircle')} Answered from your Askbook data</div>`;
+      }
+    }
     el.innerHTML = `
       <div class="ai-ava">${isAssistant ? icon('sparkles') : esc(initials(user.name || 'You'))}</div>
       <div style="flex:1">
         <div class="ai-role">${isAssistant ? 'Assistant' : 'You'}</div>
         <div class="ai-body ai-md">${bodyHtml}</div>
         ${attachHtml}
+        ${hintHtml}
         ${srcHtml}
       </div>`;
     return el;
   }
 
+  // Progressive processing labels shown while the assistant works. These are
+  // generic, user-friendly hints — they NEVER expose internal tool names.
+  const PROCESSING_STEPS = [
+    'Thinking…',
+    'Checking Askbook data…',
+    'Checking your timetable…',
+    'Reading uploaded content…',
+    'Searching college material…',
+    'Preparing answer…',
+  ];
+
+  /**
+   * Build the "assistant is working" bubble. Returns { el, stop } where stop()
+   * halts the label timer. The label advances every ~1.4s to reassure the user
+   * during multi-step tool/RAG turns, then settles on "Preparing answer…".
+   */
   function typingBubble() {
     const el = document.createElement('div');
     el.className = 'ai-msg assistant';
@@ -351,9 +378,16 @@ export function renderAssistant({ main, user, role, dashboard = null, greeting =
       <div class="ai-ava">${icon('sparkles')}</div>
       <div style="flex:1">
         <div class="ai-role">Assistant</div>
-        <div class="ai-typing"><span></span><span></span><span></span></div>
+        <div class="ai-processing"><span class="ai-typing"><span></span><span></span><span></span></span>
+          <span class="ai-proc-label" id="procLabel">${PROCESSING_STEPS[0]}</span></div>
       </div>`;
-    return el;
+    let i = 0;
+    const labelEl = el.querySelector('#procLabel');
+    const timer = setInterval(() => {
+      i = Math.min(i + 1, PROCESSING_STEPS.length - 1);
+      if (labelEl) labelEl.textContent = PROCESSING_STEPS[i];
+    }, 1400);
+    return { el, stop: () => clearInterval(timer) };
   }
 
   function retryBar(text) {
@@ -411,17 +445,24 @@ export function renderAssistant({ main, user, role, dashboard = null, greeting =
     updateSendState();
 
     const typing = typingBubble();
-    t.appendChild(typing);
+    t.appendChild(typing.el);
     scrollToBottom();
 
     const answer = await ask({ text, conversationId: activeId || null, file: file || undefined });
-    typing.remove();
+    typing.stop();
+    typing.el.remove();
 
     // Thread the server conversation id (new conversations get one back).
     const wasNew = !activeId;
     if (answer && answer.conversationId != null) activeId = answer.conversationId;
 
-    t.appendChild(bubble({ role: 'assistant', text: answer.text, sources: answer.sources }));
+    t.appendChild(bubble({
+      role: 'assistant',
+      text: answer.text,
+      sources: answer.sources,
+      ragUsed: answer.ragUsed,
+      toolUsed: answer.toolUsed,
+    }));
 
     // On error, offer a retry affordance.
     if (answer && answer.error) {

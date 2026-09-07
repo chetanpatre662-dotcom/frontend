@@ -179,3 +179,120 @@ test('system prompt enforces read-only, anti-hallucination and confidentiality',
   // in the read-only rules, e.g. "changing roles/passwords" — that's fine).
   assert.doesNotMatch(p, /firebase_uid|GEMINI_API_KEY|private_key/i);
 });
+
+/* ================= new real-data tools (assignments/projects/admin) ====== */
+
+test('new real-data tools are registered', () => {
+  const names = aiToolRegistry.toolNames();
+  assert.ok(names.includes('get_my_assignments'), 'get_my_assignments registered');
+  assert.ok(names.includes('get_my_projects'), 'get_my_projects registered');
+  assert.ok(names.includes('get_admin_stats'), 'get_admin_stats registered');
+});
+
+test('new tools expose NO user/role/id parameter (identity is server-side)', () => {
+  const decls = aiToolRegistry.toolDeclarations()[0].functionDeclarations;
+  const targets = ['get_my_assignments', 'get_my_projects', 'get_admin_stats'];
+  for (const name of targets) {
+    const d = decls.find((x) => x.name === name);
+    assert.ok(d, `${name} has a declaration`);
+    const props = (d.parameters && d.parameters.properties) || {};
+    const leak = Object.keys(props).some((k) => /^(user|userid|user_id|role|firebase|studentid|facultyid|studentId|facultyId)/i.test(k));
+    assert.equal(leak, false, `${name} must not accept an identity parameter`);
+  }
+});
+
+test('get_admin_stats DENIES a student (role gate), never returns counts', async () => {
+  const r = await aiToolRegistry.executeTool('get_admin_stats', { user: { id: 5, role: 'student', firebase_uid: 's' } }, {});
+  assert.ok(r && typeof r.error === 'string', 'student must get an error, not stats');
+  assert.match(r.error, /administrator/i);
+  // Ensure no numeric count fields leaked to a non-admin.
+  assert.equal(r.totalUsers, undefined);
+  assert.equal(r.students, undefined);
+});
+
+test('get_admin_stats DENIES a faculty (role gate)', async () => {
+  const r = await aiToolRegistry.executeTool('get_admin_stats', { user: { id: 6, role: 'faculty', firebase_uid: 'f' } }, {});
+  assert.ok(r && typeof r.error === 'string');
+  assert.equal(r.totalUsers, undefined);
+});
+
+/* ============ no fabrication: timetable / attendance / marks ============= */
+
+test('NO attendance / marks tool exists (still no real backing data to fabricate)', () => {
+  const names = aiToolRegistry.toolNames().join(',').toLowerCase();
+  // Timetable IS now a real, data-backed feature (get_my_timetable) — allowed.
+  // Attendance and marks remain unbacked, so no tool for them may exist.
+  assert.doesNotMatch(names, /attendance/);
+  assert.doesNotMatch(names, /\bmarks\b/);
+  assert.doesNotMatch(names, /\bgrade\b/);
+});
+
+test('system prompt explicitly refuses to invent attendance/marks/timetable', () => {
+  const p = aiOrchestrator.buildSystemPrompt({ role: 'student', display_name: 'A' }, { name: 'A', group: 'B.Tech CSE, sem 3' });
+  // The anti-hallucination block names these exact fields + tells the model to
+  // say they are not available in Askbook rather than inventing them.
+  assert.match(p, /attendance/i);
+  assert.match(p, /marks/i);
+  assert.match(p, /timetable/i);
+  assert.match(p, /not available in\s+Askbook/i);
+});
+
+/* ================= additive response metadata (ragUsed/toolUsed) ========= */
+
+test('degraded orchestrator response carries additive toolUsed/ragUsed = false', async () => {
+  const res = await aiOrchestrator.ask({
+    user: { id: 1, role: 'student', firebase_uid: 'x' },
+    message: 'what is my attendance?',
+  });
+  // With no Gemini key we degrade; the additive flags must be present + false.
+  assert.equal(res.degraded, true);
+  assert.equal(res.toolUsed, false, 'toolUsed present + false on degraded path');
+  assert.equal(res.ragUsed, false, 'ragUsed present + false on degraded path');
+});
+
+/* ============================ timetable tool ============================= */
+
+test('get_my_timetable is registered and read-only (no write verb)', () => {
+  const names = aiToolRegistry.toolNames();
+  assert.ok(names.includes('get_my_timetable'), 'get_my_timetable registered');
+  // Re-assert the whole toolset stays read-only after the addition.
+  const writeish = names.filter((n) => /create|update|delete|remove|add|edit|approve|reject|send|set|write|modify/i.test(n));
+  assert.equal(writeish.length, 0, `no write tools allowed, found: ${writeish.join(', ')}`);
+});
+
+test('get_my_timetable exposes NO identity parameter (server-side identity only)', () => {
+  const decls = aiToolRegistry.toolDeclarations()[0].functionDeclarations;
+  const d = decls.find((x) => x.name === 'get_my_timetable');
+  assert.ok(d, 'get_my_timetable has a declaration');
+  const props = (d.parameters && d.parameters.properties) || {};
+  const leak = Object.keys(props).some((k) => /^(user|userid|user_id|role|firebase|studentid|facultyid)/i.test(k));
+  assert.equal(leak, false, 'get_my_timetable must not accept an identity parameter');
+  // The only argument it accepts is an optional day filter.
+  assert.deepEqual(Object.keys(props).sort(), ['day']);
+});
+
+test('get_my_timetable refuses when there is no authenticated user', async () => {
+  const r = await aiToolRegistry.executeTool('get_my_timetable', {}, {});
+  assert.ok(r && r.error === 'Not authenticated.');
+});
+
+/* =============== multimodal ingest: source-tracking + honesty ============ */
+
+test('multimodalIngestService.ingestText skips (no fabrication) when AI is off', async () => {
+  const multimodal = require('../src/services/multimodalIngestService');
+  // Gemini is not configured in tests -> must skip, never write fake chunks.
+  const r = await multimodal.ingestText({
+    sourceType: 'document', sourceId: 1, text: 'hello world', scope: { accessScope: 'public' },
+  });
+  assert.equal(r.status, 'skipped');
+  assert.match(r.reason, /not configured/i);
+});
+
+test('timetable is an allowed RAG source_type in the ingest layer', () => {
+  // ingestTimetable stamps source_type='timetable'; assert the helper exists and
+  // is wired (behavioral guard against accidental removal).
+  const multimodal = require('../src/services/multimodalIngestService');
+  assert.equal(typeof multimodal.ingestTimetable, 'function');
+  assert.equal(typeof multimodal.bufferToText, 'function');
+  assert.equal(typeof multimodal.urlToText, 'function');
+});

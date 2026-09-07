@@ -23,6 +23,7 @@ const { requireAdmin } = require('../middleware/requireAdmin');
 const userRepository = require('../repositories/userRepository');
 const aiOrchestrator = require('../services/aiOrchestrator');
 const documentIngestService = require('../services/documentIngestService');
+const multimodalIngestService = require('../services/multimodalIngestService');
 const aiDocumentRepository = require('../repositories/aiDocumentRepository');
 const fileRepository = require('../repositories/fileRepository');
 const storageService = require('../services/storageService');
@@ -104,6 +105,11 @@ router.post('/ai/chat', requireAuth, upload.single('attachment'), async (req, re
       conversationId: result.conversationId,
       toolsUsed: result.toolsUsed || [],
       degraded: Boolean(result.degraded),
+      // Additive metadata (new fields only — existing fields unchanged).
+      // Booleans let the frontend show "Searched college material…" style hints
+      // WITHOUT exposing internal tool names.
+      toolUsed: Boolean(result.toolUsed),
+      ragUsed: Boolean(result.ragUsed),
     });
   } catch (err) {
     next(err);
@@ -226,6 +232,67 @@ router.post('/ai/ingest', requireAuth, requireAdmin, async (req, res, next) => {
     const limit = body.limit != null ? Number(body.limit) : 500;
     const report = await documentIngestService.ingestAll({ sourceType, classId, limit });
     return res.status(200).json({ success: true, ...report });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/ai/ingest-url  (ADMIN ONLY) — understand a public URL and index it.
+ * Body: { url, title?, accessScope(public|class)?, program?, branch?, semester?, classId? }
+ * The URL is fetched SSRF-safely, understood (PDF/text/HTML/image via vision),
+ * and its text is indexed as a standalone AI document (source_type='document').
+ * Never fabricates content; returns a clear error for unsafe/unsupported links.
+ */
+router.post('/ai/ingest-url', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const url = String(body.url || '').trim();
+    if (!url) throw new ApiError(400, 'A url is required.', { code: 'VALIDATION_ERROR' });
+
+    // Understand the linked content (throws ApiError on unsafe/blocked URL).
+    const understood = await multimodalIngestService.urlToText(url);
+    if (!understood.text) {
+      throw new ApiError(422, understood.reason || 'No readable content was found at that link.', { code: 'URL_NO_CONTENT' });
+    }
+
+    const accessScope = body.accessScope === 'class' ? 'class' : 'public';
+    const title = String(body.title || understood.finalUrl || url).slice(0, 300);
+    const doc = await aiDocumentRepository.insert({
+      title,
+      fileId: null,
+      originalFilename: null,
+      mimeType: 'text/plain',
+      sizeBytes: Buffer.byteLength(understood.text, 'utf8'),
+      accessScope,
+      program: accessScope === 'class' ? (body.program || null) : null,
+      branch: accessScope === 'class' ? (body.branch || null) : null,
+      semester: accessScope === 'class' && body.semester != null && body.semester !== '' ? Number(body.semester) : null,
+      classId: accessScope === 'class' && body.classId ? Number(body.classId) : null,
+      uploadedBy: req.dbUser ? req.dbUser.id : null,
+    });
+
+    const result = await multimodalIngestService.ingestText({
+      sourceType: 'document',
+      sourceId: doc.id,
+      text: understood.text,
+      scope: {
+        accessScope,
+        classId: doc.class_id,
+        program: doc.program,
+        branch: doc.branch,
+        semester: doc.semester,
+      },
+      title,
+      uploadedBy: req.dbUser ? req.dbUser.id : null,
+    });
+    try {
+      await aiDocumentRepository.setStatus(doc.id, {
+        status: result.status, indexError: result.reason || null, chunksCount: result.chunks || 0,
+      });
+    } catch { /* best-effort */ }
+
+    res.status(201).json({ success: true, document: toDocumentView((await aiDocumentRepository.findById(doc.id)) || doc), ingest: result, sourceUrl: understood.finalUrl });
   } catch (err) {
     next(err);
   }

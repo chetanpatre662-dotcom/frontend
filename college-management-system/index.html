@@ -23,13 +23,13 @@
       display: flex; align-items: center; justify-content: space-between;
       padding: var(--sp-5) var(--sp-8);
     }
-    .landing-nav .brand { display: flex; align-items: center; gap: var(--sp-3); }
+    .landing-nav .brand { display: flex; align-items: center; gap: 12px; }
     .landing-nav .brand .logo {
-      width: 46px; height: 46px; border-radius: 12px;
+      height: 50px; border-radius: 12px;
       background: transparent; display: grid; place-items: center;
       overflow: hidden;
     }
-    .landing-nav .brand .logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .landing-nav .brand .logo img { height: 48px; max-height: 52px; width: auto; max-width: 100%; object-fit: contain; display: block; }
     .landing-nav .brand .logo svg { width: 28px; height: 28px; max-width: 28px; max-height: 28px; color: var(--accent-500); }
     .landing-nav .brand .name { font-weight: 700; color: var(--brand-900); line-height: 1.1; font-size: 1.1rem; }
     .landing-nav .brand .sub { font-size: var(--fs-xs); color: var(--text-muted); }
@@ -128,7 +128,7 @@
     const logoImg = document.createElement('img');
     logoImg.src = APP.COLLEGE_LOGO;
     logoImg.alt = APP.COLLEGE_NAME + ' logo';
-    logoImg.style.cssText = 'width:100%;height:100%;object-fit:contain;display:block';
+    // Sizing/aspect handled by .landing-nav .brand .logo img in the page CSS.
     logoEl.appendChild(logoImg);
 
     // Brand name is rendered as styled Ask+book spans in the markup; no override.

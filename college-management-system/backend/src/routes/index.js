@@ -16,6 +16,7 @@ const authRoutes = require('./auth.routes');
 const profileRoutes = require('./profile.routes');
 const adminRoutes = require('./admin.routes');
 const subjectRoutes = require('./subject.routes');
+const timetableRoutes = require('./timetable.routes');
 const eventRoutes = require('./event.routes');
 const classRoutes = require('./class.routes');
 const announcementRoutes = require('./announcement.routes');
@@ -33,6 +34,7 @@ router.use('/admin', adminRoutes);
 // mount at the API root.
 router.use('/', profileRoutes);
 router.use('/', subjectRoutes);
+router.use('/', timetableRoutes);
 router.use('/', eventRoutes);
 router.use('/', classRoutes);
 router.use('/', announcementRoutes);

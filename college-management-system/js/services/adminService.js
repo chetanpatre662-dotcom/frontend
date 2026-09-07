@@ -12,7 +12,7 @@
  */
 import { ENV } from '../config.js';
 import { getIdToken } from '../firebase/auth.js';
-import { authedRequest } from './apiClient.js';
+import { authedRequest, authedUpload } from './apiClient.js';
 
 /** Resolve a fresh Firebase ID token, or a structured 401-style error. */
 async function withToken() {
@@ -286,5 +286,79 @@ export async function deleteAdminClass(id) {
     return { ok: true, ...res };
   } catch (e) {
     return { ok: false, error: e?.message || 'Could not delete class.', status: e?.status };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Timetable (admin): extract -> review -> save. Same (program,branch, */
+/* semester) group as Subjects. Extraction returns a DRAFT to review.  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * POST /api/admin/timetables/extract — process an image/PDF/text/URL into a
+ * draft timetable for review. `payload` = { program, branch, semester,
+ * inputType, text?, url?, file? (File) }.
+ */
+export async function extractTimetable(payload) {
+  const { token, error } = await withToken();
+  if (error) return error;
+  const { program, branch, semester, inputType, text, url, file } = payload || {};
+  try {
+    let res;
+    if (inputType === 'image' || inputType === 'pdf') {
+      const fd = new FormData();
+      fd.set('program', program);
+      fd.set('branch', branch);
+      fd.set('semester', String(semester));
+      fd.set('inputType', inputType);
+      if (file) fd.set('file', file);
+      res = await authedUpload('/admin/timetables/extract', token, fd, { method: 'POST' });
+    } else {
+      res = await authedRequest('/admin/timetables/extract', token, {
+        method: 'POST',
+        body: { program, branch, semester, inputType, text, url },
+      });
+    }
+    return { ok: true, draft: res?.draft || null };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'Could not process the timetable.', status: e?.status };
+  }
+}
+
+/** GET /api/admin/timetables?program=&branch=&semester= — saved timetable. */
+export async function getTimetable({ program, branch, semester }) {
+  const { token, error } = await withToken();
+  if (error) return error;
+  const qs = new URLSearchParams({ program, branch, semester: String(semester) }).toString();
+  try {
+    const res = await authedRequest(`/admin/timetables?${qs}`, token, { method: 'GET' });
+    return { ok: true, timetable: res?.timetable || null };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'Could not load the timetable.', status: e?.status };
+  }
+}
+
+/** PUT /api/admin/timetables — save/replace a reviewed timetable. */
+export async function saveTimetable(data) {
+  const { token, error } = await withToken();
+  if (error) return error;
+  try {
+    const res = await authedRequest('/admin/timetables', token, { method: 'PUT', body: data });
+    return { ok: true, ...res };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'Could not save the timetable.', status: e?.status };
+  }
+}
+
+/** DELETE /api/admin/timetables?program=&branch=&semester= */
+export async function deleteTimetable({ program, branch, semester }) {
+  const { token, error } = await withToken();
+  if (error) return error;
+  const qs = new URLSearchParams({ program, branch, semester: String(semester) }).toString();
+  try {
+    const res = await authedRequest(`/admin/timetables?${qs}`, token, { method: 'DELETE' });
+    return { ok: true, ...res };
+  } catch (e) {
+    return { ok: false, error: e?.message || 'Could not delete the timetable.', status: e?.status };
   }
 }

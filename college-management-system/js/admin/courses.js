@@ -21,6 +21,7 @@ import { bootstrapAdmin } from './nav.js';
 import {
   getCourses, createCourse, getBranches, createBranch,
   listSubjects, createSubjectsBulk, updateSubject, deleteSubject,
+  extractTimetable, getTimetable, saveTimetable as apiSaveTimetable,
 } from '../services/adminService.js';
 
 // Explorer state: which level we're at + the current selection.
@@ -341,9 +342,11 @@ async function goSubjects(course, branch, semester) {
   renderBreadcrumbs();
   setHeadActions(`
     <button class="btn btn-ghost" id="backBtn">${icon('arrowLeft')} Back</button>
+    <button class="btn btn-ghost" id="addTimetableBtn">${icon('calendar')} Add Timetable</button>
     <button class="btn btn-primary" id="addSubjectsBtn">${icon('plus')} Add Subjects</button>`);
   $('#backBtn').addEventListener('click', () => goSemesters(course, branch));
   $('#addSubjectsBtn').addEventListener('click', () => openBulkSubjects(course, branch, semester));
+  $('#addTimetableBtn').addEventListener('click', () => openTimetable(course, branch, semester));
   await loadSubjects();
 }
 
@@ -424,6 +427,197 @@ function openBulkSubjects(course, branch, semester) {
     // Remain in the same semester and refresh the subject list.
     await loadSubjects();
   }
+}
+
+/* ---- Add / manage Timetable (image / PDF / text / URL → review → save) ---- */
+const TT_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+function openTimetable(course, branch, semester) {
+  const group = { program: course.name, branch: branch.name, semester };
+  // Working set of entries the admin reviews/edits before saving.
+  let entries = [];
+
+  const { close, el } = openModal({
+    title: `Timetable · ${course.name} → ${branch.name} → Semester ${semester}`,
+    size: 'modal-lg',
+    body: `
+      <div id="ttStep1">
+        <p class="text-muted" style="font-size:var(--fs-sm);margin-bottom:10px">
+          Provide the timetable as an image, PDF, plain text, or a secure link.
+          Askbook will extract it for you to review and edit before saving.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Input type</label>
+          <select class="input" id="ttType">
+            <option value="text">Text</option>
+            <option value="image">Image</option>
+            <option value="pdf">PDF</option>
+            <option value="url">Link (URL)</option>
+          </select>
+        </div>
+        <div class="form-group" id="ttTextWrap">
+          <label class="form-label" for="ttText">Timetable text</label>
+          <textarea class="input" id="ttText" rows="6" placeholder="Monday&#10;9:30-10:30 Data Structures&#10;10:30-11:30 Mathematics"></textarea>
+        </div>
+        <div class="form-group" id="ttFileWrap" style="display:none">
+          <label class="form-label" for="ttFile">File</label>
+          <input class="input" type="file" id="ttFile" accept="image/*,application/pdf" />
+        </div>
+        <div class="form-group" id="ttUrlWrap" style="display:none">
+          <label class="form-label" for="ttUrl">Secure https:// link</label>
+          <input class="input" id="ttUrl" placeholder="https://example.com/timetable.pdf" />
+        </div>
+        <div class="field-error" id="ttErr"></div>
+        <div style="margin-top:12px;display:flex;gap:8px">
+          <button type="button" class="btn btn-primary" id="ttProcessBtn">Process</button>
+          <button type="button" class="btn btn-ghost" id="ttManualBtn">Enter manually</button>
+        </div>
+      </div>
+      <div id="ttStep2" style="display:none">
+        <div id="ttReviewHint" class="text-muted" style="font-size:var(--fs-sm);margin-bottom:8px"></div>
+        <div id="ttConflicts"></div>
+        <div id="ttTable"></div>
+        <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+          <button type="button" class="btn btn-sm btn-ghost" id="ttAddRow">${icon('plus')} Add row</button>
+          <span style="flex:1"></span>
+          <button type="button" class="btn btn-ghost" id="ttBackBtn">Back</button>
+          <button type="button" class="btn btn-primary" id="ttSaveBtn">Save Timetable</button>
+        </div>
+      </div>`,
+    actions: [{ label: 'Close', class: 'btn-ghost' }],
+  });
+
+  const typeSel = $('#ttType', el);
+  const errEl = $('#ttErr', el);
+  const step1 = $('#ttStep1', el);
+  const step2 = $('#ttStep2', el);
+
+  function syncInputs() {
+    const t = typeSel.value;
+    $('#ttTextWrap', el).style.display = t === 'text' ? '' : 'none';
+    $('#ttFileWrap', el).style.display = (t === 'image' || t === 'pdf') ? '' : 'none';
+    $('#ttUrlWrap', el).style.display = t === 'url' ? '' : 'none';
+    $('#ttFile', el).setAttribute('accept', t === 'image' ? 'image/*' : 'application/pdf');
+  }
+  typeSel.addEventListener('change', syncInputs);
+  syncInputs();
+
+  function rowHTML(e, i) {
+    const opts = TT_DAYS.map((d, di) => `<option value="${di}" ${Number(e.dayOfWeek) === di ? 'selected' : ''}>${d}</option>`).join('');
+    const low = e.matchConfidence === 'low';
+    return `
+      <tr data-row="${i}" ${low ? 'style="background:var(--warn-bg,#fff7ed)"' : ''}>
+        <td><select class="input input-sm" data-f="dayOfWeek">${opts}</select></td>
+        <td><input class="input input-sm" data-f="startTime" value="${esc(e.startTime || '')}" placeholder="09:30" style="width:80px" /></td>
+        <td><input class="input input-sm" data-f="endTime" value="${esc(e.endTime || '')}" placeholder="10:30" style="width:80px" /></td>
+        <td><input class="input input-sm" data-f="subjectName" value="${esc(e.subjectName || '')}" placeholder="Subject" />${low ? '<div class="text-muted" style="font-size:var(--fs-xs)">needs review</div>' : ''}</td>
+        <td><input class="input input-sm" data-f="room" value="${esc(e.room || '')}" placeholder="Room" style="width:80px" /></td>
+        <td><button type="button" class="btn-icon" data-delrow="${i}" title="Remove">${icon('x')}</button></td>
+      </tr>`;
+  }
+
+  function renderTable() {
+    const host = $('#ttTable', el);
+    if (!entries.length) {
+      host.innerHTML = '<p class="text-muted" style="font-size:var(--fs-sm)">No rows yet. Add rows manually or go back and process a source.</p>';
+      return;
+    }
+    host.innerHTML = `
+      <table class="tt-review" style="width:100%;border-collapse:collapse;font-size:var(--fs-sm)">
+        <thead><tr><th>Day</th><th>Start</th><th>End</th><th>Subject</th><th>Room</th><th></th></tr></thead>
+        <tbody>${entries.map((e, i) => rowHTML(e, i)).join('')}</tbody>
+      </table>`;
+    $$('[data-delrow]', host).forEach((b) => b.addEventListener('click', () => {
+      entries.splice(Number(b.dataset.delrow), 1); renderTable();
+    }));
+  }
+
+  function harvestFromDOM() {
+    const rows = $$('#ttTable tr[data-row]', el);
+    entries = rows.map((tr) => ({
+      dayOfWeek: Number($('[data-f="dayOfWeek"]', tr).value),
+      startTime: $('[data-f="startTime"]', tr).value.trim(),
+      endTime: $('[data-f="endTime"]', tr).value.trim(),
+      subjectName: $('[data-f="subjectName"]', tr).value.trim(),
+      room: $('[data-f="room"]', tr).value.trim() || null,
+      courseId: entries[Number(tr.dataset.row)]?.courseId ?? null,
+    }));
+  }
+
+  function showReview(draft) {
+    step1.style.display = 'none';
+    step2.style.display = '';
+    entries = (draft.entries || []).map((e) => ({ ...e }));
+    const invalidCount = (draft.invalid || []).length;
+    $('#ttReviewHint', el).innerHTML =
+      `Extracted <strong>${draft.extractedCount || 0}</strong> row(s).` +
+      (invalidCount ? ` ${invalidCount} row(s) could not be read and were skipped.` : '') +
+      (draft.note ? ` <span class="text-muted">${esc(draft.note)}</span>` : '');
+    const conflicts = draft.conflicts || [];
+    $('#ttConflicts', el).innerHTML = conflicts.length
+      ? `<div class="field-error">Warning: ${conflicts.length} time conflict(s) detected. Review overlapping slots before saving.</div>`
+      : '';
+    renderTable();
+  }
+
+  async function process() {
+    errEl.textContent = '';
+    const t = typeSel.value;
+    const payload = { ...group, inputType: t };
+    if (t === 'text') {
+      payload.text = $('#ttText', el).value.trim();
+      if (!payload.text) { errEl.textContent = 'Enter the timetable text.'; return; }
+    } else if (t === 'url') {
+      payload.url = $('#ttUrl', el).value.trim();
+      if (!payload.url) { errEl.textContent = 'Enter a secure https:// link.'; return; }
+    } else {
+      const f = $('#ttFile', el).files[0];
+      if (!f) { errEl.textContent = 'Choose a file to process.'; return; }
+      payload.file = f;
+    }
+    const btn = $('#ttProcessBtn', el);
+    btn.disabled = true; btn.textContent = 'Processing…';
+    const res = await extractTimetable(payload);
+    btn.disabled = false; btn.textContent = 'Process';
+    if (!res.ok) { errEl.textContent = res.error || 'Could not process the timetable.'; return; }
+    showReview(res.draft || { entries: [], extractedCount: 0 });
+  }
+
+  $('#ttProcessBtn', el).addEventListener('click', process);
+  $('#ttManualBtn', el).addEventListener('click', () => showReview({ entries: [], extractedCount: 0, note: 'Add rows manually below.' }));
+  $('#ttSaveBtn', el).addEventListener('click', () => save());
+  $('#ttBackBtn', el).addEventListener('click', () => { step2.style.display = 'none'; step1.style.display = ''; });
+
+  async function save() {
+    harvestFromDOM();
+    if (!entries.length) { toastError('Add at least one row before saving.'); return; }
+    const res = await apiSaveTimetable({ ...group, sourceKind: typeSel.value, entries });
+    if (!res.ok) { toastError(res.error || 'Could not save the timetable.'); return; }
+    toastSuccess('Timetable saved.');
+    close();
+  }
+
+  $('#ttAddRow', el).addEventListener('click', () => {
+    harvestFromDOM();
+    entries.push({ dayOfWeek: 0, startTime: '', endTime: '', subjectName: '', room: null, courseId: null });
+    renderTable();
+  });
+
+  // Offer a shortcut to manual entry (skip extraction) via the empty review.
+  getTimetable(group).then((res) => {
+    if (res.ok && res.timetable && res.timetable.exists && Array.isArray(res.timetable.entries) && res.timetable.entries.length) {
+      // Preload the existing timetable into the review step for editing.
+      showReview({
+        entries: res.timetable.entries.map((e) => ({
+          dayOfWeek: e.dayOfWeek, startTime: e.startTime, endTime: e.endTime,
+          subjectName: e.subject, subjectCode: e.subjectCode, room: e.room, courseId: e.courseId,
+          matchConfidence: 'high',
+        })),
+        extractedCount: res.timetable.entries.length, conflicts: [], invalid: [],
+        note: 'Loaded the existing timetable for editing.',
+      });
+    }
+  });
 }
 
 function openEditSubject(s) {

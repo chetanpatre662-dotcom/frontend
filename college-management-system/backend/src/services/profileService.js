@@ -53,8 +53,21 @@ function normalizeMobile10(value) {
 /** Indian mobile: EXACTLY 10 digits after normalization. */
 const MOBILE_IN_RE = /^\d{10}$/;
 
+/** Max length for the optional free-text faculty fields (qualification/subjects). */
+const MAX_TEXT_LEN = 300;
+
 function isNonEmpty(v) {
   return typeof v === 'string' && v.trim() !== '';
+}
+
+/**
+ * Normalize an optional free-text field: trim, collapse whitespace, cap length.
+ * Returns null for empty input so the DB column stays NULL rather than ''.
+ */
+function normalizeOptionalText(value) {
+  if (value == null) return null;
+  const cleaned = String(value).replace(/\s+/g, ' ').trim().slice(0, MAX_TEXT_LEN);
+  return cleaned === '' ? null : cleaned;
 }
 
 /** Resolve the current PostgreSQL user for a verified UID, or 404. */
@@ -129,6 +142,8 @@ async function saveFacultyProfile(firebaseUid, input = {}) {
   const mobileNumber = normalizeMobile10(input.mobileNumber);
   const department = String(input.department || '').trim();
   const designation = String(input.designation || '').trim();
+  const qualification = normalizeOptionalText(input.qualification);
+  const subjectsHandled = normalizeOptionalText(input.subjectsHandled ?? input.subjects);
 
   const errors = [];
   if (!isNonEmpty(fullName)) errors.push('fullName is required.');
@@ -145,6 +160,8 @@ async function saveFacultyProfile(firebaseUid, input = {}) {
     mobileNumber,
     department,
     designation,
+    qualification,
+    subjectsHandled,
   });
 
   // Mark the account as pending approval (explicit status model). The ROLE is
@@ -244,6 +261,8 @@ async function getMyProfile(firebaseUid) {
           mobileNumber: displayMobile(faculty.mobile_number),
           department: faculty.department,
           designation: faculty.designation,
+          qualification: faculty.qualification || '',
+          subjectsHandled: faculty.subjects_handled || '',
         }
       : null,
   };
@@ -303,6 +322,15 @@ async function updateMyProfile(firebaseUid, input = {}) {
     const mobileNumber = input.mobileNumber != null ? normalizeMobile10(input.mobileNumber) : faculty.mobile_number;
     const department = input.department != null ? String(input.department).trim() : faculty.department;
     const designation = input.designation != null ? String(input.designation).trim() : faculty.designation;
+    // Optional free-text fields: only overwrite when the client sends them;
+    // otherwise preserve the currently stored value.
+    const qualification = (input.qualification != null)
+      ? normalizeOptionalText(input.qualification)
+      : (faculty.qualification ?? null);
+    const subjectsRaw = input.subjectsHandled ?? input.subjects;
+    const subjectsHandled = (subjectsRaw != null)
+      ? normalizeOptionalText(subjectsRaw)
+      : (faculty.subjects_handled ?? null);
 
     const errors = [];
     if (!isNonEmpty(fullName)) errors.push('fullName is required.');
@@ -312,7 +340,9 @@ async function updateMyProfile(firebaseUid, input = {}) {
     if (errors.length) throw new ApiError(400, errors.join(' '), { code: 'VALIDATION_ERROR' });
 
     // upsertByUserId never touches employee_id (admin-assigned) — safe.
-    await facultyRepository.upsertByUserId({ userId: user.id, fullName, mobileNumber, department, designation });
+    await facultyRepository.upsertByUserId({
+      userId: user.id, fullName, mobileNumber, department, designation, qualification, subjectsHandled,
+    });
     return getMyProfile(firebaseUid);
   }
 

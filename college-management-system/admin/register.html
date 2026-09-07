@@ -123,7 +123,7 @@
     import { applyForAdmin } from '../js/services/approvalService.js';
 
     // Brand
-    document.getElementById('logoBadge').innerHTML = `<img src="../${APP.COLLEGE_LOGO.replace(/^\//, '')}" alt="${esc(APP.COLLEGE_NAME)} logo" />`;
+    document.getElementById('logoBadge').innerHTML = `<img src="${APP.COLLEGE_LOGO}" alt="${esc(APP.COLLEGE_NAME)} logo" />`;
     document.getElementById('collegeName').innerHTML = `<span class="brand-ask">Ask</span><span class="brand-book">book</span>`;
     document.getElementById('collegeSub').textContent = APP.COLLEGE_SUB;
     document.getElementById('rolePill').innerHTML = icon('shield') + ' Admin';

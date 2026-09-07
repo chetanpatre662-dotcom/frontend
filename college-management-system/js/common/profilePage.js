@@ -23,7 +23,7 @@ import { $, esc } from './dom.js';
 import { icon } from './icons.js';
 import { toastSuccess, toastError } from './toast.js';
 import { loadingState, emptyState } from './components.js';
-import { validateForm, rules, clearErrors, setFieldError } from './validation.js';
+import { validateForm, rules, clearErrors } from './validation.js';
 import { phoneFieldHTML, wirePhoneInputs, phoneForSubmit } from './phoneInput.js';
 import { getMyProfile, updateMyProfile } from '../services/profileApiService.js';
 
@@ -75,6 +75,19 @@ function roleBadge(p) {
   return `<span class="badge badge-brand">${esc(label)}</span>`;
 }
 
+/**
+ * Academic year derived from the semester: Year = ceil(semester / 2).
+ * Sem 1–2 → 1st Year, 3–4 → 2nd, 5–6 → 3rd, 7–8 → 4th.
+ * Returns a human label (e.g. "2nd Year") or '' when semester is unknown.
+ */
+function yearFromSemester(semester) {
+  const sem = Number(semester);
+  if (!Number.isInteger(sem) || sem < 1) return '';
+  const year = Math.ceil(sem / 2);
+  const ordinal = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th' }[year] || `${year}th`;
+  return `${ordinal} Year`;
+}
+
 /* ---------------- VIEW MODE ---------------- */
 
 function renderView(main, p) {
@@ -92,11 +105,14 @@ function renderView(main, p) {
     rows.push(field('Course', s.program || '—'));
     rows.push(field('Branch', s.branch || '—'));
     rows.push(field('Semester', s.semester != null ? String(s.semester) : '—'));
+    rows.push(field('Year', yearFromSemester(s.semester) || '—'));
   } else if (kind === 'faculty') {
     const f = p.faculty;
     rows.push(field('Mobile', f.mobileNumber ? `+91 ${esc(f.mobileNumber)}` : '—'));
     rows.push(field('Department', f.department || '—'));
     rows.push(field('Designation', f.designation || '—'));
+    rows.push(field('Qualification', f.qualification || '—'));
+    rows.push(field('Subjects / courses handled', f.subjectsHandled || '—'));
     rows.push(field('Employee ID', f.employeeId || 'Not assigned'));
   } else {
     rows.push(field('Mobile', p.phone ? `+91 ${esc(p.phone)}` : '—'));
@@ -140,7 +156,9 @@ function renderEdit(main, p) {
     const branchOpts = BRANCHES.map((b) => `<option value="${esc(b)}"${b === s.branch ? ' selected' : ''}>${esc(b)}</option>`).join('');
     fieldsHTML = `
       ${textField('name', 'Full name', s.fullName)}
-      ${textField('rollNumber', 'Roll number', s.rollNumber)}
+      <div class="form-group"><label class="form-label">Roll number</label>
+        <div><span class="badge badge-brand" style="font-size:var(--fs-sm);padding:6px 12px">${esc(s.rollNumber || 'Not assigned')}</span></div>
+        <div class="text-muted" style="font-size:var(--fs-xs);margin-top:4px">Your roll number is fixed and cannot be changed here.</div></div>
       ${phoneFieldHTML({ id: 'mobileNumber', label: 'Mobile number', required: true, value: s.mobileNumber || '' })}
       <div class="form-group"><label class="form-label" for="program">Course <span class="req">*</span></label>
         <select class="input" id="program" name="program"><option value="">Select course</option>${courseOpts}</select>
@@ -151,6 +169,9 @@ function renderEdit(main, p) {
       <div class="form-group"><label class="form-label" for="semester">Semester <span class="req">*</span></label>
         <select class="input" id="semester" name="semester"></select>
         <div class="field-error"></div></div>
+      <div class="form-group"><label class="form-label" for="academicYear">Year</label>
+        <input class="input" id="academicYear" type="text" value="${esc(yearFromSemester(s.semester))}" readonly disabled />
+        <div class="text-muted" style="font-size:var(--fs-xs);margin-top:4px">Automatically calculated from your semester.</div></div>
     `;
   } else if (kind === 'faculty') {
     const f = p.faculty;
@@ -159,11 +180,18 @@ function renderEdit(main, p) {
     fieldsHTML = `
       ${textField('name', 'Full name', f.fullName)}
       ${phoneFieldHTML({ id: 'mobileNumber', label: 'Mobile number', required: true, value: f.mobileNumber || '' })}
-      <div class="form-group"><label class="form-label" for="department">Department <span class="req">*</span></label>
+      <div class="form-group"><label class="form-label" for="department">Department / Branch <span class="req">*</span></label>
         <select class="input" id="department" name="department"><option value="">Select department</option>${deptOpts}</select>
         <div class="field-error"></div></div>
       <div class="form-group"><label class="form-label" for="designation">Designation <span class="req">*</span></label>
         <select class="input" id="designation" name="designation"><option value="">Select designation</option>${desigOpts}</select>
+        <div class="field-error"></div></div>
+      <div class="form-group"><label class="form-label" for="qualification">Qualification</label>
+        <input class="input" id="qualification" name="qualification" type="text" maxlength="300" placeholder="e.g. M.Tech, PhD" value="${esc(f.qualification || '')}" />
+        <div class="field-error"></div></div>
+      <div class="form-group"><label class="form-label" for="subjectsHandled">Subjects / courses handled</label>
+        <textarea class="input" id="subjectsHandled" name="subjectsHandled" rows="2" maxlength="300" placeholder="e.g. Data Structures, DBMS, Operating Systems">${esc(f.subjectsHandled || '')}</textarea>
+        <div class="text-muted" style="font-size:var(--fs-xs);margin-top:4px">Separate multiple subjects with commas.</div>
         <div class="field-error"></div></div>
     `;
   } else {
@@ -195,19 +223,24 @@ function renderEdit(main, p) {
   const form = $('#profileForm', area);
   wirePhoneInputs(area);
 
-  // Student: wire dependent semester dropdown off the selected course.
+  // Student: wire dependent semester dropdown off the selected course + the
+  // read-only Year field that is auto-computed from the chosen semester.
   if (kind === 'student') {
     const programSel = form.elements['program'];
     const semSel = form.elements['semester'];
+    const yearField = form.elements['academicYear'];
+    const syncYear = () => { if (yearField) yearField.value = yearFromSemester(semSel.value); };
     const fillSemesters = (selected) => {
       const program = programSel.value;
       const max = program === COURSE_TYPES.POLYTECHNIC ? 6 : 8;
       let opts = '<option value="">Select semester</option>';
       for (let i = 1; i <= max; i++) opts += `<option value="${i}"${Number(selected) === i ? ' selected' : ''}>Semester ${i}</option>`;
       semSel.innerHTML = opts;
+      syncYear();
     };
     fillSemesters(p.student.semester);
     programSel.addEventListener('change', () => fillSemesters(''));
+    semSel.addEventListener('change', syncYear);
   }
 
   area.querySelector('#cancelBtn').addEventListener('click', () => renderView(main, p));
@@ -230,9 +263,9 @@ async function save(main, p, form) {
   // Validate per role.
   let schema = { name: [rules.required], mobileNumber: [rules.required, rules.mobileIN] };
   if (kind === 'student') {
+    // Roll number is read-only (not part of the editable form), so it is not validated or submitted.
     schema = {
       name: [rules.required],
-      rollNumber: [rules.required],
       mobileNumber: [rules.required, rules.mobileIN],
       program: [rules.selected],
       branch: [rules.selected],
@@ -252,9 +285,10 @@ async function save(main, p, form) {
   const mobileNumber = phoneForSubmit(form.elements['mobileNumber'].value);
   let payload;
   if (kind === 'student') {
+    // rollNumber is intentionally omitted — it is read-only and the backend
+    // preserves the existing value when not supplied in the PATCH body.
     payload = {
       fullName: form.elements['name'].value.trim(),
-      rollNumber: form.elements['rollNumber'].value.trim(),
       mobileNumber,
       program: form.elements['program'].value,
       branch: form.elements['branch'].value,
@@ -266,6 +300,8 @@ async function save(main, p, form) {
       mobileNumber,
       department: form.elements['department'].value,
       designation: form.elements['designation'].value,
+      qualification: form.elements['qualification'].value.trim(),
+      subjectsHandled: form.elements['subjectsHandled'].value.trim(),
     };
   } else {
     payload = { displayName: form.elements['name'].value.trim(), mobileNumber };
@@ -282,7 +318,7 @@ async function save(main, p, form) {
   saveBtn.innerHTML = orig;
 
   if (!res.ok) {
-    if (/roll/i.test(res.error || '')) setFieldError(form.elements['rollNumber'], res.error);
+    // Roll number is no longer an editable field; surface any related error as a toast.
     return toastError(res.error || 'Could not save your profile.');
   }
   toastSuccess('Profile updated.');
