@@ -27,8 +27,10 @@ const ACTIVITY_LABEL = { note: 'Note', question_paper: 'Question paper', assignm
 
 function init({ main, user }) {
   const firstName = (user.name || 'there').split(' ')[0];
+  const desig = user.designation || 'Faculty';
+  const dept = user.department ? ` · ${esc(user.department)}` : '';
   const greeting = `<span class="ai-greet-hi">${esc(greetingWord())}, ${esc(firstName)}</span>
-    <span class="ai-greet-sub">${esc(user.designation || 'Faculty')}${user.department ? ' · ' + esc(user.department) : ''} — ask me anything or manage your classes.</span>`;
+    <span class="ai-greet-sub">${esc(desig)}${dept} &mdash; ask me anything or manage your classes.</span>`;
 
   renderAssistant({
     main,

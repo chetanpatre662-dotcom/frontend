@@ -733,3 +733,447 @@
   .ai-layout--unified { grid-template-columns: 1fr; }
   .ai-greeting { padding: var(--sp-3) var(--sp-4) 0; }
 }
+
+/* =========================================================================
+   AI ASSISTANT — DASHBOARD INTEGRATION STYLES
+   Visual polish so the AI chat feels like a natural part of each role's
+   dashboard rather than a separately pasted component.
+   Uses existing design tokens exclusively — no hardcoded values.
+   ========================================================================= */
+
+/* ---------- Greeting area — visual separation from chat ---------- */
+.ai-greeting {
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+  padding-bottom: var(--sp-4);
+  flex-shrink: 0;
+}
+/* When there is no greeting, remove the bottom border so the scroll area
+   flows directly into view without an orphaned line. */
+.ai-greeting:empty {
+  display: none;
+}
+
+/* ---------- History sidebar — match dashboard card style ---------- */
+.ai-history {
+  background: var(--surface);
+}
+.ai-history .aih-head {
+  border-bottom: 1px solid var(--border);
+}
+.ai-history .aih-new {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+/* ---------- Chat welcome — better vertical rhythm ---------- */
+.ai-welcome {
+  padding-top: 8vh;
+}
+.ai-welcome h2 {
+  color: var(--gray-900);
+  font-weight: 700;
+}
+.ai-welcome p {
+  max-width: 420px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ---------- Suggestion chips — refined hover ---------- */
+.ai-suggestion {
+  font-size: var(--fs-sm);
+  color: var(--gray-700);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.ai-suggestion svg {
+  color: var(--gray-400);
+  flex-shrink: 0;
+}
+
+/* ---------- Message bubbles — better spacing & visual weight ---------- */
+.ai-thread {
+  gap: var(--sp-6);
+  padding-bottom: var(--sp-4);
+}
+.ai-msg {
+  gap: var(--sp-3);
+  line-height: 1.6;
+}
+.ai-msg .ai-ava {
+  margin-top: 2px;   /* align avatar top with first line of text */
+}
+.ai-msg.user .ai-body {
+  background: var(--gray-50);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-3) var(--sp-4);
+  font-weight: 500;
+  white-space: pre-wrap;
+}
+.ai-msg.user .ai-body p {
+  margin: 0;
+}
+.ai-msg.assistant .ai-body {
+  padding-top: 0;
+}
+
+/* ---------- Composer — subtle elevation + focus ring ---------- */
+.ai-composer-wrap {
+  border-top: 1px solid var(--border);
+  padding-top: var(--sp-4);
+}
+.ai-composer {
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+/* ---------- Rail header — proper close affordance on all sizes ---------- */
+.ai-rail-head {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.ai-rail-title {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--gray-700);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+/* Show toggle on desktop too — let users collapse the rail if they want. */
+.ai-rail-toggle {
+  display: inline-grid;
+  color: var(--gray-400);
+}
+.ai-rail-toggle:hover {
+  color: var(--gray-700);
+  background: var(--gray-100);
+}
+
+/* Rail overlay backdrop (shown when rail is open on tablet/mobile) */
+.ai-rail-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  z-index: 39;
+}
+.ai-rail-backdrop.open {
+  display: block;
+}
+
+/* ---------- Rail metrics — cleaner look ---------- */
+.rail-metric {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--sp-3) var(--sp-4);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.rail-metric:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
+}
+.rm-value {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Rail class cards — consistent with rail-metric style ---------- */
+.rail-class {
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.rail-class:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---------- Rail quick-action cards — consistent hover ---------- */
+.rail-qa {
+  transition: border-color var(--transition), box-shadow var(--transition), color var(--transition);
+}
+.rail-qa:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+/* =========================================================================
+   ROLE-SPECIFIC AI THEMING
+   Override the default indigo accent for each role to match their existing
+   dashboard theme. Uses the same role class that mountLayout() adds to <body>.
+   ========================================================================= */
+
+/* --- Student role: emerald green theme --- */
+.role-student .ai-history .aih-new {
+  border-color: var(--success-600);
+  color: var(--success-600);
+}
+.role-student .ai-history .aih-new:hover {
+  background: var(--success-100);
+  border-color: var(--success-600);
+}
+.role-student .ai-history .aih-item.active {
+  background: var(--success-100);
+  color: #047857;
+}
+.role-student .ai-msg.assistant .ai-ava {
+  background: linear-gradient(135deg, #047857, var(--success-600));
+}
+.role-student .ai-welcome .aiw-badge svg {
+  color: var(--success-600);
+}
+.role-student .ai-suggestion:hover {
+  border-color: var(--success-600);
+}
+.role-student .ai-suggestion:hover svg {
+  color: var(--success-600);
+}
+.role-student .ai-composer .ai-send {
+  background: var(--success-600);
+}
+.role-student .ai-composer .ai-send:hover {
+  background: #047857;
+}
+.role-student .ai-composer:focus-within {
+  border-color: var(--success-600);
+  box-shadow: 0 0 0 3px var(--success-100);
+}
+.role-student .rail-qa:hover {
+  border-color: var(--success-600);
+  color: #047857;
+}
+.role-student .rail-qa .qa-icon {
+  background: var(--success-100);
+  color: var(--success-600);
+}
+.role-student .rail-metric:hover {
+  border-color: var(--success-600);
+}
+.role-student .rail-class:hover {
+  border-color: var(--success-600);
+}
+.role-student .ai-greet-hi {
+  color: var(--gray-900);
+}
+.role-student .ai-history .aih-item:hover {
+  background: var(--success-100);
+  color: #047857;
+}
+
+/* --- Admin role: violet theme --- */
+.role-admin .ai-history .aih-new {
+  border-color: #7c3aed;
+  color: #7c3aed;
+}
+.role-admin .ai-history .aih-new:hover {
+  background: #ede9fe;
+  border-color: #7c3aed;
+}
+.role-admin .ai-history .aih-item.active {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+.role-admin .ai-msg.assistant .ai-ava {
+  background: linear-gradient(135deg, #5b21b6, #7c3aed);
+}
+.role-admin .ai-welcome .aiw-badge svg {
+  color: #7c3aed;
+}
+.role-admin .ai-suggestion:hover {
+  border-color: #7c3aed;
+}
+.role-admin .ai-suggestion:hover svg {
+  color: #7c3aed;
+}
+.role-admin .ai-composer .ai-send {
+  background: #7c3aed;
+}
+.role-admin .ai-composer .ai-send:hover {
+  background: #6d28d9;
+}
+.role-admin .ai-composer:focus-within {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 3px #ede9fe;
+}
+.role-admin .rail-qa:hover {
+  border-color: #7c3aed;
+  color: #6d28d9;
+}
+.role-admin .rail-qa .qa-icon {
+  background: #ede9fe;
+  color: #7c3aed;
+}
+.role-admin .rail-metric:hover {
+  border-color: #7c3aed;
+}
+.role-admin .rail-class:hover {
+  border-color: #7c3aed;
+}
+.role-admin .ai-history .aih-item:hover {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+/* --- Faculty role: default indigo (--brand-600) stays, minor accents --- */
+.role-faculty .ai-history .aih-new {
+  border-color: var(--brand-600);
+  color: var(--brand-600);
+}
+.role-faculty .ai-history .aih-new:hover {
+  background: var(--brand-50);
+  border-color: var(--brand-600);
+}
+
+/* =========================================================================
+   MOBILE / RESPONSIVE — additional fixes
+   ========================================================================= */
+
+/* Improve chat scroll on touch devices */
+.ai-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* On narrow screens the ai-thread shouldn't exceed viewport width */
+.ai-thread {
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+}
+@media (min-width: 640px) {
+  .ai-thread {
+    max-width: 760px;
+  }
+}
+
+/* Make suggestion chips single-column below 400px */
+@media (max-width: 400px) {
+  .ai-suggestions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Composer should not overflow its container */
+.ai-composer-wrap {
+  overflow: hidden;
+}
+.ai-composer {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+@media (min-width: 640px) {
+  .ai-composer {
+    max-width: 760px;
+  }
+}
+.ai-attach-preview {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+@media (min-width: 640px) {
+  .ai-attach-preview {
+    max-width: 760px;
+  }
+}
+
+/* Rail body scrollbar — subtle */
+.ai-rail-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-300) transparent;
+}
+.ai-rail-body::-webkit-scrollbar {
+  width: 4px;
+}
+.ai-rail-body::-webkit-scrollbar-thumb {
+  background: var(--gray-300);
+  border-radius: var(--radius-full);
+}
+
+/* History list scrollbar — subtle */
+.ai-history .aih-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-300) transparent;
+}
+.ai-history .aih-list::-webkit-scrollbar {
+  width: 4px;
+}
+.ai-history .aih-list::-webkit-scrollbar-thumb {
+  background: var(--gray-300);
+  border-radius: var(--radius-full);
+}
+
+/* Chat scroll area scrollbar — subtle */
+.ai-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-300) transparent;
+}
+.ai-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.ai-scroll::-webkit-scrollbar-thumb {
+  background: var(--gray-300);
+  border-radius: var(--radius-full);
+}
+
+/* Very small phones: ensure input doesn't overflow */
+@media (max-width: 360px) {
+  .ai-composer {
+    padding: var(--sp-2);
+    gap: var(--sp-1);
+  }
+  .ai-composer .ai-send,
+  .ai-composer .ai-attach {
+    width: 34px;
+    height: 34px;
+  }
+  .ai-greet-hi {
+    font-size: 1rem;
+  }
+}
+
+/* =========================================================================
+   AI-GREETING — role-specific accent colors
+   ========================================================================= */
+.role-student .ai-greet-hi .g-context,
+.role-student .ai-greet-text .g-context {
+  color: #047857;
+  background: var(--success-100);
+}
+.role-admin .ai-greet-hi .g-context,
+.role-admin .ai-greet-text .g-context {
+  color: #6d28d9;
+  background: #ede9fe;
+}
+
+/* =========================================================================
+   DISCLAIMER — slightly more visible
+   ========================================================================= */
+.ai-disclaimer {
+  color: var(--gray-400);
+  font-size: var(--fs-xs);
+  padding-top: var(--sp-1);
+}
+
+/* =========================================================================
+   ATTACHMENT PREVIEW — role-themed accent border
+   ========================================================================= */
+.role-student .ap-chip {
+  border-color: var(--success-600);
+}
+.role-admin .ap-chip {
+  border-color: #7c3aed;
+}
+
+/* =========================================================================
+   HISTORY SIDEBAR — "Home & Assistant" nav item pulse for active state
+   ========================================================================= */
+.sb-link.sb-ai.active {
+  position: relative;
+}
+.sb-link.sb-ai.active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 50%; transform: translateY(-50%);
+  width: 3px; height: 60%; border-radius: 0 2px 2px 0;
+  background: currentColor;
+  opacity: 0.5;
+}

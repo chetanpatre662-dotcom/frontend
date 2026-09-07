@@ -15,8 +15,9 @@ import { getAdminStats } from '../services/adminService.js';
 bootstrapAdmin({ activeId: 'dashboard', title: 'Home' }).then((ctx) => { if (ctx) init(ctx); });
 
 function init({ main, user }) {
+  const adminName = user.name || 'Administrator';
   const greeting = `<span class="ai-greet-hi">Administration</span>
-    <span class="ai-greet-sub">Signed in as ${esc(user.name || 'Administrator')} — ask about college data or jump to management.</span>`;
+    <span class="ai-greet-sub">Signed in as <strong>${esc(adminName)}</strong> &mdash; ask about college data or jump to management.</span>`;
 
   renderAssistant({
     main,

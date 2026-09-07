@@ -122,8 +122,8 @@ export function renderAssistant({ main, user, role, dashboard = null, greeting =
       ${hasRail ? `
       <aside class="ai-rail" id="aiRail" aria-label="Dashboard">
         <div class="ai-rail-head">
-          <span class="ai-rail-title">${esc(dashboard.title || 'Dashboard')}</span>
-          <button class="btn-icon ai-rail-toggle" id="railToggle" aria-label="Toggle dashboard">${icon('layers')}</button>
+          <span class="ai-rail-title">${icon('dashboard')} ${esc(dashboard.title || 'Dashboard')}</span>
+          <button class="btn-icon ai-rail-toggle" id="railToggle" aria-label="Close dashboard panel" title="Close panel">${icon('x')}</button>
         </div>
         <div class="ai-rail-body" id="aiRailBody"></div>
       </aside>` : ''}
@@ -144,9 +144,34 @@ export function renderAssistant({ main, user, role, dashboard = null, greeting =
     const rail = $('#aiRail', main);
     const toggle = $('#railToggle', main);
     const railOpen = $('#railOpen', main);
-    const toggleRail = () => rail && rail.classList.toggle('collapsed');
-    if (toggle && rail) toggle.addEventListener('click', toggleRail);   // close (from rail header)
-    if (railOpen && rail) railOpen.addEventListener('click', toggleRail); // open (from chat area)
+
+    // Backdrop — injected once, used to close the rail on tablet/mobile
+    let backdrop = document.getElementById('aiRailBackdrop');
+    if (!backdrop) {
+      backdrop = document.createElement('div');
+      backdrop.id = 'aiRailBackdrop';
+      backdrop.className = 'ai-rail-backdrop';
+      document.body.appendChild(backdrop);
+    }
+
+    const openRail = () => {
+      if (!rail) return;
+      rail.classList.add('collapsed');       // collapsed = visible at ≤1024px
+      backdrop.classList.add('open');
+    };
+    const closeRail = () => {
+      if (!rail) return;
+      rail.classList.remove('collapsed');
+      backdrop.classList.remove('open');
+    };
+    const toggleRail = () => {
+      if (!rail) return;
+      if (rail.classList.contains('collapsed')) { closeRail(); } else { openRail(); }
+    };
+
+    if (toggle) toggle.addEventListener('click', closeRail);    // × in rail header
+    if (railOpen) railOpen.addEventListener('click', openRail); // "Dashboard" button in chat
+    backdrop.addEventListener('click', closeRail);              // backdrop tap
   }
 
   /* ---------- attachment composer ---------- */
