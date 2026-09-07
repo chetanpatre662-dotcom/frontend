@@ -594,3 +594,142 @@
   .events-grid { grid-template-columns: 1fr; }
   .ev-filters .search { flex: 1 1 100%; }
 }
+
+/* =========================================================================
+   UNIFIED DASHBOARD — chat-first with a secondary dashboard rail
+   Layout: [ history 260px ][ chat 1fr (primary) ][ dashboard rail 320px ]
+   The chat is the visual priority; the rail keeps stats/actions one glance away.
+   ========================================================================= */
+.ai-layout--unified {
+  grid-template-columns: 250px minmax(0, 1fr) 340px;
+}
+
+/* Greeting strip above the chat (personalized, role-themed) */
+.ai-greeting {
+  padding: var(--sp-4) var(--sp-6) 0;
+  display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3);
+}
+.ai-greet-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ai-greet-hi { font-size: 1.15rem; font-weight: 800; color: var(--gray-900); letter-spacing: -0.01em; }
+.ai-greet-sub { font-size: var(--fs-sm); color: var(--text-muted); }
+/* The "Dashboard" open button only appears when the rail is a drawer (≤1024px). */
+.ai-rail-open { display: none; flex-shrink: 0; }
+
+/* ---- Attachment composer ---- */
+.ai-composer .ai-attach {
+  flex-shrink: 0; width: 38px; height: 38px; border-radius: 10px;
+  background: transparent; border: none; color: var(--gray-500);
+  display: grid; place-items: center; cursor: pointer;
+}
+.ai-composer .ai-attach:hover { background: var(--gray-100); color: var(--brand-600); }
+.ai-attach-preview { max-width: 760px; margin: 0 auto var(--sp-2); }
+.ap-chip {
+  display: inline-flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 12px; padding: 6px 8px 6px 6px; max-width: 100%;
+  box-shadow: var(--shadow-sm);
+}
+.ap-thumb { width: 40px; height: 40px; border-radius: 8px; object-fit: cover; flex-shrink: 0; display: block; }
+.ap-thumb.ap-doc { display: grid; place-items: center; background: var(--brand-50); color: var(--brand-600); }
+.ap-meta { display: flex; flex-direction: column; min-width: 0; }
+.ap-name { font-size: var(--fs-sm); font-weight: 600; color: var(--gray-800); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-size { font-size: var(--fs-xs); color: var(--text-muted); }
+.ap-remove { color: var(--gray-400); flex-shrink: 0; }
+.ap-remove:hover { color: var(--danger-600); }
+
+/* Attachment chip shown on a sent user message */
+.ai-msg-attach {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
+  padding: 4px 10px; border-radius: 8px; background: var(--gray-100);
+  font-size: var(--fs-xs); color: var(--gray-600);
+}
+.ai-msg-attach svg { width: 13px; height: 13px; }
+
+/* Rename button in history (added alongside delete) */
+.ai-history .aih-item .aih-rename { opacity: 0; color: var(--gray-400); }
+.ai-history .aih-item:hover .aih-rename { opacity: 1; }
+.ai-history .aih-loading, .ai-history .aih-error { padding: var(--sp-4); font-size: var(--fs-xs); color: var(--text-muted); text-align: center; }
+
+/* ---- Dashboard rail (secondary) ---- */
+.ai-rail {
+  border-left: 1px solid var(--border);
+  background: var(--surface-2);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.ai-rail-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--sp-4); border-bottom: 1px solid var(--border);
+}
+.ai-rail-title { font-weight: 700; font-size: var(--fs-sm); color: var(--gray-700); }
+.ai-rail-toggle { display: none; color: var(--gray-500); }
+.ai-rail-body { flex: 1; overflow-y: auto; padding: var(--sp-4); }
+
+.rail-context {
+  display: flex; align-items: center; gap: 6px; font-size: var(--fs-xs);
+  color: var(--text-muted); margin-bottom: var(--sp-3);
+}
+.rail-context svg { width: 14px; height: 14px; }
+
+.rail-metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.rail-metric, .rail-metric-link .rail-metric {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: var(--sp-3);
+}
+.rail-metric-link { text-decoration: none; }
+.rail-metric-link:hover .rail-metric { border-color: var(--brand-400); }
+.rm-value { font-size: 1.3rem; font-weight: 800; color: var(--gray-900); line-height: 1; }
+.rm-label { display: flex; align-items: center; gap: 5px; font-size: var(--fs-xs); color: var(--text-muted); margin-top: 4px; }
+.rm-label svg { width: 13px; height: 13px; }
+
+.rail-section { margin-bottom: var(--sp-4); }
+.rail-sec-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-2); font-weight: 700; font-size: var(--fs-sm); color: var(--gray-700); }
+.rail-sec-head .btn { padding: 2px 10px; font-size: var(--fs-xs); }
+
+.rail-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-2); }
+.rail-qa {
+  display: flex; align-items: center; gap: 8px; padding: 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  font-size: var(--fs-sm); font-weight: 500; color: var(--gray-700); text-decoration: none;
+}
+.rail-qa:hover { border-color: var(--brand-400); color: var(--brand-700); }
+.rail-qa .qa-icon { color: var(--brand-600); display: grid; place-items: center; }
+.rail-qa .qa-icon svg { width: 16px; height: 16px; }
+
+.rail-classes { display: flex; flex-direction: column; gap: 6px; }
+.rail-class {
+  display: flex; align-items: center; gap: 10px; padding: 8px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  text-decoration: none;
+}
+.rail-class:hover { border-color: var(--brand-400); }
+.rc-avatar { width: 34px; height: 34px; border-radius: 8px; color: #fff; font-weight: 700; font-size: var(--fs-xs); display: grid; place-items: center; flex-shrink: 0; }
+.rc-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.rc-title { font-size: var(--fs-sm); font-weight: 600; color: var(--gray-800); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-sub { font-size: var(--fs-xs); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-open { color: var(--gray-300); flex-shrink: 0; }
+.rc-open svg { width: 16px; height: 16px; }
+
+/* ---- Unified responsive: collapse the rail, then the history ---- */
+@media (max-width: 1200px) {
+  .ai-layout--unified { grid-template-columns: 240px minmax(0, 1fr) 300px; }
+}
+@media (max-width: 1024px) {
+  /* Rail becomes an overlay drawer. It sits off-screen by default so it never
+     covers the chat on load; the header toggle button flips `.collapsed`. */
+  .ai-layout--unified { grid-template-columns: 240px minmax(0, 1fr); }
+  .ai-layout--unified .ai-rail {
+    position: fixed; top: var(--header-h); right: 0; bottom: 0; width: 340px; max-width: 88vw;
+    z-index: 40; transition: transform 0.2s ease;
+    box-shadow: -8px 0 24px rgba(0,0,0,0.12);
+    transform: translateX(100%); /* hidden by default on tablet/mobile */
+  }
+  /* JS toggles `.collapsed`; on small screens that class brings it INTO view. */
+  .ai-layout--unified .ai-rail.collapsed { transform: translateX(0); }
+  .ai-rail-toggle { display: inline-grid; }
+  /* Reachable "Dashboard" open button in the chat area. */
+  .ai-rail-open { display: inline-flex; align-items: center; gap: 6px; }
+}
+@media (max-width: 860px) {
+  .ai-layout--unified { grid-template-columns: 1fr; }
+  .ai-greeting { padding: var(--sp-3) var(--sp-4) 0; }
+}

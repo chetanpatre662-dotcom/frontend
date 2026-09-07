@@ -69,20 +69,31 @@ function sourcesHTML(sources, role) {
   return `<div class="ai-sources"><div class="ai-sources-head">Sources</div><ul>${items}</ul></div>`;
 }
 
+/** Accepted chat attachment types (mirrors the backend CHAT_ATTACH_MIME). */
+const ATTACH_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,.pdf,.docx,.txt';
+const MAX_ATTACH_BYTES = 25 * 1024 * 1024;
+
 /**
  * @param {object} opts
  * @param {HTMLElement} opts.main #appMain
  * @param {object} opts.user authenticated identity (+merged profile)
  * @param {'student'|'faculty'|'admin'} opts.role
+ * @param {object} [opts.dashboard] optional secondary dashboard rail:
+ *   { title?, render(container, ctx) } — render() populates the rail element.
+ *   When provided, the layout becomes chat-first with a collapsible side rail.
+ * @param {string} [opts.greeting] optional greeting line shown above the chat.
  */
-export function renderAssistant({ main, user, role }) {
+export function renderAssistant({ main, user, role, dashboard = null, greeting = '' }) {
   let activeId = null;         // server conversation id of the open thread
   let conversations = [];      // cached list for the sidebar
   let busy = false;
   let lastFailed = null;       // { text } of the last message that errored (retry)
+  let pendingFile = null;      // the attachment queued in the composer (if any)
+
+  const hasRail = Boolean(dashboard && typeof dashboard.render === 'function');
 
   main.innerHTML = `
-    <div class="ai-layout">
+    <div class="ai-layout${hasRail ? ' ai-layout--unified' : ''}">
       <aside class="ai-history">
         <div class="aih-head">
           <button class="btn aih-new" id="newChat">${icon('plusCircle')} New chat</button>
@@ -94,21 +105,88 @@ export function renderAssistant({ main, user, role }) {
       </aside>
 
       <section class="ai-main">
+        ${greeting || hasRail ? `<div class="ai-greeting" id="aiGreeting"><div class="ai-greet-text">${greeting}</div>${hasRail ? `<button class="btn btn-sm ai-rail-open" id="railOpen" aria-label="Open dashboard">${icon('layers')} Dashboard</button>` : ''}</div>` : ''}
         <div class="ai-scroll" id="aiScroll"></div>
         <div class="ai-composer-wrap">
+          <div class="ai-attach-preview" id="attachPreview" hidden></div>
           <div class="ai-composer">
-            <textarea id="aiInput" rows="1" placeholder="Ask about your classes, papers, announcements, events, documents…"></textarea>
+            <button class="ai-attach" id="aiAttach" aria-label="Attach a file" title="Attach image, PDF, DOCX or TXT">${icon('paperclip')}</button>
+            <input type="file" id="aiFile" accept="${ATTACH_ACCEPT}" hidden />
+            <textarea id="aiInput" rows="1" placeholder="Ask about your classes, papers, announcements, events — or attach a file…"></textarea>
             <button class="ai-send" id="aiSend" aria-label="Send" disabled>${icon('send')}</button>
           </div>
           <div class="ai-disclaimer">Answers are grounded in your accessible Askbook data and cite their sources. The assistant is read-only and may occasionally be wrong &mdash; verify important details.</div>
         </div>
       </section>
+
+      ${hasRail ? `
+      <aside class="ai-rail" id="aiRail" aria-label="Dashboard">
+        <div class="ai-rail-head">
+          <span class="ai-rail-title">${esc(dashboard.title || 'Dashboard')}</span>
+          <button class="btn-icon ai-rail-toggle" id="railToggle" aria-label="Toggle dashboard">${icon('layers')}</button>
+        </div>
+        <div class="ai-rail-body" id="aiRailBody"></div>
+      </aside>` : ''}
     </div>
   `;
 
   const scroll = $('#aiScroll', main);
   const input = $('#aiInput', main);
   const sendBtn = $('#aiSend', main);
+  const fileInput = $('#aiFile', main);
+  const attachBtn = $('#aiAttach', main);
+  const attachPreview = $('#attachPreview', main);
+
+  /* ---------- dashboard rail (secondary) ---------- */
+  if (hasRail) {
+    const railBody = $('#aiRailBody', main);
+    try { dashboard.render(railBody, { user, role }); } catch (e) { console.debug('[dash] rail render failed', e); }
+    const rail = $('#aiRail', main);
+    const toggle = $('#railToggle', main);
+    const railOpen = $('#railOpen', main);
+    const toggleRail = () => rail && rail.classList.toggle('collapsed');
+    if (toggle && rail) toggle.addEventListener('click', toggleRail);   // close (from rail header)
+    if (railOpen && rail) railOpen.addEventListener('click', toggleRail); // open (from chat area)
+  }
+
+  /* ---------- attachment composer ---------- */
+  function clearAttachment() {
+    pendingFile = null;
+    fileInput.value = '';
+    attachPreview.hidden = true;
+    attachPreview.innerHTML = '';
+    updateSendState();
+  }
+
+  function showAttachment(file) {
+    const isImg = file.type && file.type.startsWith('image/');
+    const sizeKb = Math.max(1, Math.round(file.size / 1024));
+    const thumb = isImg
+      ? `<img class="ap-thumb" alt="preview" src="${URL.createObjectURL(file)}" />`
+      : `<span class="ap-thumb ap-doc">${icon('file')}</span>`;
+    attachPreview.innerHTML = `
+      <div class="ap-chip">
+        ${thumb}
+        <div class="ap-meta">
+          <span class="ap-name" title="${esc(file.name)}">${esc(file.name)}</span>
+          <span class="ap-size">${sizeKb} KB</span>
+        </div>
+        <button class="btn-icon ap-remove" id="apRemove" aria-label="Remove attachment">${icon('x')}</button>
+      </div>`;
+    attachPreview.hidden = false;
+    const rm = $('#apRemove', attachPreview);
+    if (rm) rm.addEventListener('click', clearAttachment);
+    updateSendState();
+  }
+
+  attachBtn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    if (file.size > MAX_ATTACH_BYTES) { toastError('That file is too large (max 25 MB).'); fileInput.value = ''; return; }
+    pendingFile = file;
+    showAttachment(file);
+  });
 
   /* ============================ history sidebar ========================== */
 
@@ -224,11 +302,17 @@ export function renderAssistant({ main, user, role }) {
     // escapes first, so both are XSS-safe).
     const bodyHtml = isAssistant ? renderMarkdown(m.text || m.content || '') : `<p>${esc(m.text || m.content || '')}</p>`;
     const srcHtml = isAssistant ? sourcesHTML(m.sources, role) : '';
+    // Attachment chip on a user message (own turn or restored from history).
+    const attachName = m.attachmentName || (m.metadata && m.metadata.attachment && m.metadata.attachment.filename) || null;
+    const attachHtml = (!isAssistant && attachName)
+      ? `<div class="ai-msg-attach">${icon('paperclip')} <span>${esc(attachName)}</span></div>`
+      : '';
     el.innerHTML = `
       <div class="ai-ava">${isAssistant ? icon('sparkles') : esc(initials(user.name || 'You'))}</div>
       <div style="flex:1">
         <div class="ai-role">${isAssistant ? 'Assistant' : 'You'}</div>
         <div class="ai-body ai-md">${bodyHtml}</div>
+        ${attachHtml}
         ${srcHtml}
       </div>`;
     return el;
@@ -283,7 +367,8 @@ export function renderAssistant({ main, user, role }) {
 
   async function onSend() {
     const text = input.value.trim();
-    if (!text || busy) return;
+    const file = pendingFile;
+    if ((!text && !file) || busy) return;
     lastFailed = null;
 
     const thread = ensureThread();
@@ -292,9 +377,11 @@ export function renderAssistant({ main, user, role }) {
     if (welcome) { scroll.innerHTML = `<div class="ai-thread" id="thread"></div>`; }
     const t = $('#thread', scroll);
 
-    t.appendChild(bubble({ role: 'user', text }));
+    t.appendChild(bubble({ role: 'user', text, attachmentName: file ? file.name : null }));
     input.value = '';
     autoGrow();
+    // Detach from the composer; the file is now in-flight.
+    if (file) { attachPreview.hidden = true; attachPreview.innerHTML = ''; pendingFile = null; fileInput.value = ''; }
     busy = true;
     updateSendState();
 
@@ -302,7 +389,7 @@ export function renderAssistant({ main, user, role }) {
     t.appendChild(typing);
     scrollToBottom();
 
-    const answer = await ask({ text, conversationId: activeId || null });
+    const answer = await ask({ text, conversationId: activeId || null, file: file || undefined });
     typing.remove();
 
     // Thread the server conversation id (new conversations get one back).
@@ -331,7 +418,7 @@ export function renderAssistant({ main, user, role }) {
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
   }
-  function updateSendState() { sendBtn.disabled = input.value.trim() === '' || busy; }
+  function updateSendState() { sendBtn.disabled = busy || (input.value.trim() === '' && !pendingFile); }
 
   input.addEventListener('input', () => { autoGrow(); updateSendState(); });
   input.addEventListener('keydown', (e) => {

@@ -27,8 +27,54 @@
 
 const { env } = require('../config/env');
 const geminiService = require('./geminiService');
+const embeddingService = require('./embeddingService');
 const aiRepository = require('../repositories/aiRepository');
 const { toolDeclarations, executeTool, toolNames } = require('./aiToolRegistry');
+
+// Max characters of extracted document text fed to the model per attachment
+// (cost/context guard). Images are passed inline (multimodal).
+const MAX_ATTACHMENT_TEXT = 8000;
+const IMAGE_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+
+/**
+ * Normalize an uploaded attachment for one chat turn (READ-ONLY, not stored).
+ * @param {object} [attachment] { buffer, mimeType, filename }
+ * @returns {Promise<null|{filename,mimeType,isImage,inlineData?,extractedText?,note?}>}
+ */
+async function processAttachment(attachment) {
+  if (!attachment || !attachment.buffer || !attachment.buffer.length) return null;
+  const filename = String(attachment.filename || 'attachment');
+  const mimeType = String(attachment.mimeType || '');
+
+  // Image -> inline for Gemini vision.
+  if (IMAGE_MIME.has(mimeType)) {
+    return {
+      filename,
+      mimeType,
+      isImage: true,
+      inlineData: { mimeType, data: attachment.buffer.toString('base64') },
+    };
+  }
+
+  // Text-extractable document -> pull bounded text as grounded context.
+  if (embeddingService.isExtractable && embeddingService.isExtractable(mimeType)) {
+    try {
+      const raw = await embeddingService.extractText(attachment.buffer, mimeType);
+      const clean = String(raw || '').trim();
+      if (!clean) return { filename, mimeType, isImage: false, note: 'no readable text could be extracted.' };
+      const extractedText = clean.length > MAX_ATTACHMENT_TEXT
+        ? `${clean.slice(0, MAX_ATTACHMENT_TEXT)}\n…(truncated)`
+        : clean;
+      return { filename, mimeType, isImage: false, extractedText };
+    } catch (e) {
+      console.warn('[ai] attachment extraction failed:', e && e.message);
+      return { filename, mimeType, isImage: false, note: 'its text could not be read.' };
+    }
+  }
+
+  // Unsupported type — acknowledge without failing the turn.
+  return { filename, mimeType, isImage: false, note: `attachments of type "${mimeType || 'unknown'}" are not supported for analysis.` };
+}
 
 /* ------------------------------ system prompt ----------------------------- */
 
@@ -165,9 +211,10 @@ async function loadProfileHint(user) {
  * @param {number} [p.conversationId] - continue an existing conversation
  * @returns {Promise<{ answer, sources, conversationId, toolsUsed, degraded? }>}
  */
-async function ask({ user, message, conversationId } = {}) {
+async function ask({ user, message, conversationId, attachment } = {}) {
   const text = String(message || '').trim();
-  if (!text) {
+  // An attachment alone (no text) is a valid turn ("what's in this image?").
+  if (!text && !attachment) {
     return { answer: 'Please type a question.', sources: [], conversationId: conversationId || null };
   }
 
@@ -191,8 +238,15 @@ async function ask({ user, message, conversationId } = {}) {
     // If the id doesn't belong to the user (or doesn't exist), start fresh
     // rather than leaking/attaching to someone else's thread.
   }
+  // ---- 1b) Process an optional attachment (read-only, server-side) ----
+  // Images -> passed inline to Gemini (multimodal). PDF/DOCX/TXT -> text is
+  // extracted here and added as bounded grounded context. Never persisted to
+  // storage; used only for this turn. Failures degrade gracefully.
+  const attach = await processAttachment(attachment);
+
   if (!convo) {
-    convo = await aiRepository.createConversation(user.id, deriveTitle(text));
+    const seedTitle = text || (attach ? `About ${attach.filename}` : 'New chat');
+    convo = await aiRepository.createConversation(user.id, deriveTitle(seedTitle));
   }
 
   const historyRows = await aiRepository.recentMessages(convo.id, env.ai.historyTurns);
@@ -201,7 +255,26 @@ async function ask({ user, message, conversationId } = {}) {
 
   // ---- 2) Build the running contents: history + this question ----
   const contents = historyToContents(historyRows);
-  contents.push({ role: 'user', parts: [{ text }] });
+
+  // Compose this turn's user parts (text + optional extracted-doc context +
+  // optional inline image for vision).
+  const userParts = [];
+  let promptText = text;
+  if (attach && attach.extractedText) {
+    promptText = `${text ? `${text}\n\n` : ''}The user attached a document "${attach.filename}". Here is its extracted text (use it as context for this turn):\n"""\n${attach.extractedText}\n"""`;
+  } else if (attach && attach.isImage) {
+    promptText = text || `Please describe and analyze the attached image ("${attach.filename}").`;
+  } else if (attach && attach.note) {
+    promptText = `${text ? `${text}\n\n` : ''}(Note: the user attached "${attach.filename}" but ${attach.note})`;
+  }
+  userParts.push({ text: promptText });
+  if (attach && attach.isImage && attach.inlineData) {
+    userParts.push({ inlineData: attach.inlineData });
+  }
+  contents.push({ role: 'user', parts: userParts });
+
+  // What we persist as the human message (kept readable; not the full doc dump).
+  const persistedUserContent = text || (attach ? `[Attached: ${attach.filename}]` : '');
 
   const tools = toolDeclarations();
   const ctx = { user };
@@ -258,7 +331,7 @@ async function ask({ user, message, conversationId } = {}) {
     // Persist the user's message so the thread isn't lost, then return a
     // friendly error (never leak internals).
     try {
-      await aiRepository.insertMessage({ conversationId: convo.id, role: 'user', content: text });
+      await aiRepository.insertMessage({ conversationId: convo.id, role: 'user', content: persistedUserContent });
     } catch { /* ignore persistence error */ }
     const friendly =
       err && err.code === 'AI_TIMEOUT'
@@ -280,7 +353,12 @@ async function ask({ user, message, conversationId } = {}) {
 
   // ---- 4) Persist the turn (conversation memory) ----
   try {
-    await aiRepository.insertMessage({ conversationId: convo.id, role: 'user', content: text });
+    await aiRepository.insertMessage({
+      conversationId: convo.id,
+      role: 'user',
+      content: persistedUserContent,
+      metadata: attach ? { attachment: { filename: attach.filename, mimeType: attach.mimeType } } : {},
+    });
     await aiRepository.insertMessage({
       conversationId: convo.id,
       role: 'assistant',

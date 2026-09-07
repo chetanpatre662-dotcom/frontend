@@ -25,9 +25,9 @@
     .approver-option input[type=radio] { accent-color:var(--brand-600); }
   </style>
 </head>
-<body>
+<body class="auth-admin">
   <div class="auth-wrap">
-    <section class="auth-hero">
+    <section class="auth-hero hero-admin">
       <div class="brand-row">
         <div class="logo-badge" id="logoBadge"></div>
         <div>
@@ -124,7 +124,7 @@
 
     // Brand
     document.getElementById('logoBadge').innerHTML = `<img src="../${APP.COLLEGE_LOGO.replace(/^\//, '')}" alt="${esc(APP.COLLEGE_NAME)} logo" />`;
-    document.getElementById('collegeName').textContent = APP.COLLEGE_SHORT;
+    document.getElementById('collegeName').innerHTML = `<span class="brand-ask">Ask</span><span class="brand-book">book</span>`;
     document.getElementById('collegeSub').textContent = APP.COLLEGE_SUB;
     document.getElementById('rolePill').innerHTML = icon('shield') + ' Admin';
     document.getElementById('heroFoot').textContent = `${APP.COLLEGE_NAME} · ${APP.NAME}`;

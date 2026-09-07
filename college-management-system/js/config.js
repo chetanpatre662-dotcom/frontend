@@ -16,8 +16,8 @@ export const APP = {
   COLLEGE_FULL: 'Satpuda College of Engineering and Polytechnic',
   // Sub-brand / co-brand tag rendered as a refined badge next to the name.
   COLLEGE_SUB: 'SCEP',
-  // Local college logo asset (app-root-relative; use resolvePath() for links).
-  COLLEGE_LOGO: '/assets/images/college_logo.png',
+  // Local Askbook logo asset (app-root-relative; use resolvePath() for links).
+  COLLEGE_LOGO: './assets/logos/askbook.png',
   VERSION: '1.0.0-frontend',
 };
 
@@ -28,9 +28,9 @@ export const APP = {
  * than the backend, so API_BASE_URL must be absolute for cross-origin calls.
  */
 export const ENV = {
-  API_BASE_URL: 'http://162.245.191.109:5000/api',
+  API_BASE_URL: '/askbook-api',
   AUTH_USE_BACKEND: true,
-  WS_URL: '', // empty -> realtimeService derives ws(s)://host/ws from API_BASE_URL
+  WS_URL: '/askbook-ws', // empty -> realtimeService derives ws(s)://host/ws from API_BASE_URL
 };
 
 export const ROLES = {
@@ -176,68 +176,56 @@ export const STORAGE_KEYS = {
 export const EVENT_TYPES = ['Workshop', 'Seminar', 'Cultural', 'Sports', 'Exam'];
 
 /** Route map keeps navigation consistent and easy to refactor. */
+const APP_BASE = '/askbook';
+
 export const ROUTES = {
-  HOME: '/index.html',
+  HOME: `${APP_BASE}/index.html`,
+
   FACULTY: {
-    LOGIN: '/faculty/login.html',
-    DASHBOARD: '/faculty/dashboard.html',
-    CLASSES: '/faculty/classes.html',
-    CLASS_DETAIL: '/faculty/class.html',
-    ANNOUNCEMENTS: '/faculty/announcements.html',
-    QUESTION_PAPERS: '/faculty/question-papers.html',
-    EVENTS: '/faculty/events.html',
-    AI: '/faculty/assistant.html',
-    PROFILE: '/faculty/profile.html',
+    LOGIN: `${APP_BASE}/faculty/login.html`,
+    DASHBOARD: `${APP_BASE}/faculty/dashboard.html`,
+    CLASSES: `${APP_BASE}/faculty/classes.html`,
+    CLASS_DETAIL: `${APP_BASE}/faculty/class.html`,
+    ANNOUNCEMENTS: `${APP_BASE}/faculty/announcements.html`,
+    QUESTION_PAPERS: `${APP_BASE}/faculty/question-papers.html`,
+    EVENTS: `${APP_BASE}/faculty/events.html`,
+    AI: `${APP_BASE}/faculty/assistant.html`,
+    PROFILE: `${APP_BASE}/faculty/profile.html`,
   },
+
   STUDENT: {
-    LOGIN: '/student/login.html',
-    DASHBOARD: '/student/dashboard.html',
-    CLASSES: '/student/classes.html',
-    CLASS_DETAIL: '/student/class.html',
-    ANNOUNCEMENTS: '/student/announcements.html',
-    QUESTION_PAPERS: '/student/question-papers.html',
-    EVENTS: '/student/events.html',
-    AI: '/student/assistant.html',
-    PROFILE: '/student/profile.html',
+    LOGIN: `${APP_BASE}/student/login.html`,
+    DASHBOARD: `${APP_BASE}/student/dashboard.html`,
+    CLASSES: `${APP_BASE}/student/classes.html`,
+    CLASS_DETAIL: `${APP_BASE}/student/class.html`,
+    ANNOUNCEMENTS: `${APP_BASE}/student/announcements.html`,
+    QUESTION_PAPERS: `${APP_BASE}/student/question-papers.html`,
+    EVENTS: `${APP_BASE}/student/events.html`,
+    AI: `${APP_BASE}/student/assistant.html`,
+    PROFILE: `${APP_BASE}/student/profile.html`,
   },
+
   ADMIN: {
-    LOGIN: '/admin/login.html',
-    DASHBOARD: '/admin/dashboard.html',
-    FACULTY: '/admin/faculty.html',
-    STUDENTS: '/admin/students.html',
-    MANAGEMENT: '/admin/management.html',
-    REQUESTS: '/admin/requests.html',
-    CLASSES: '/admin/classes.html',
-    COURSES: '/admin/courses.html',
-    SETTINGS: '/admin/settings.html',
-    AI: '/admin/assistant.html',
-    AI_DOCUMENTS: '/admin/ai-documents.html',
-    PROFILE: '/admin/profile.html',
+    LOGIN: `${APP_BASE}/admin/login.html`,
+    DASHBOARD: `${APP_BASE}/admin/dashboard.html`,
+    FACULTY: `${APP_BASE}/admin/faculty.html`,
+    STUDENTS: `${APP_BASE}/admin/students.html`,
+    MANAGEMENT: `${APP_BASE}/admin/management.html`,
+    REQUESTS: `${APP_BASE}/admin/requests.html`,
+    CLASSES: `${APP_BASE}/admin/classes.html`,
+    COURSES: `${APP_BASE}/admin/courses.html`,
+    SETTINGS: `${APP_BASE}/admin/settings.html`,
+    AI: `${APP_BASE}/admin/assistant.html`,
+    AI_DOCUMENTS: `${APP_BASE}/admin/ai-documents.html`,
+    PROFILE: `${APP_BASE}/admin/profile.html`,
   },
 };
 
 /**
- * Resolve an app-root-relative path (starting with "/") to a path that works
- * regardless of how deep the current page is nested (e.g. /faculty/x.html).
- * Keeps links robust without a server rewrite layer.
+ * Resolve a path for use in navigation links and redirects.
+ * ROUTES values already contain the full absolute path including the
+ * /askbook base prefix, so no additional computation is needed.
  */
 export function resolvePath(rootRelative) {
-  // Determine how many levels deep we are relative to the app root.
-  // The app root is the folder that contains index.html.
-  const path = window.location.pathname;
-  const marker = '/college-management-system/';
-  let base = '';
-  if (path.includes(marker)) {
-    base = path.substring(0, path.indexOf(marker) + marker.length - 1);
-  } else {
-    // Fallback: assume the folder holding index.html is the app root.
-    // Strip the trailing file + one folder if we're inside faculty/student/admin.
-    const segments = path.split('/').filter(Boolean);
-    segments.pop(); // remove file name
-    if (['faculty', 'student', 'admin'].includes(segments[segments.length - 1])) {
-      segments.pop();
-    }
-    base = '/' + segments.join('/');
-  }
-  return (base + rootRelative).replace(/\/{2,}/g, '/');
+  return rootRelative;
 }

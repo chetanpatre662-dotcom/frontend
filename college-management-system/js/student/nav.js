@@ -6,8 +6,7 @@ import { requireAuth } from '../common/authGuard.js';
 import { mountLayout } from '../common/layout.js';
 
 const NAV = [
-  { id: 'dashboard', label: 'Dashboard', icon: 'dashboard', href: ROUTES.STUDENT.DASHBOARD },
-  { id: 'ai', label: 'AI Assistant', icon: 'sparkles', href: ROUTES.STUDENT.AI, ai: true },
+  { id: 'dashboard', label: 'Home & Assistant', icon: 'sparkles', href: ROUTES.STUDENT.DASHBOARD, ai: true },
   { section: 'Academics' },
   { id: 'classes', label: 'My Classes', icon: 'classes', href: ROUTES.STUDENT.CLASSES },
   { id: 'announcements', label: 'Announcements', icon: 'megaphone', href: ROUTES.STUDENT.ANNOUNCEMENTS },

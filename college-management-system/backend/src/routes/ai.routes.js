@@ -41,6 +41,14 @@ const AI_DOC_MIME = new Set([
   'text/plain',
 ]);
 
+// MIME types accepted as a chat attachment: extractable docs + images (vision).
+const CHAT_ATTACH_MIME = new Set([
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
+  'text/plain',
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+]);
+
 /** Resolve the current DB user from the verified token (identity source). */
 async function currentUser(req) {
   const user = await userRepository.findByFirebaseUid(req.user.uid);
@@ -53,21 +61,33 @@ async function currentUser(req) {
  * Body: { message: string, conversationId?: number }
  * Returns: { success, answer, sources, conversationId, toolsUsed }
  */
-router.post('/ai/chat', requireAuth, async (req, res, next) => {
+router.post('/ai/chat', requireAuth, upload.single('attachment'), async (req, res, next) => {
   try {
     const user = await currentUser(req);
     const body = req.body || {};
 
     const message = typeof body.message === 'string' ? body.message.trim() : '';
-    if (!message) {
-      throw new ApiError(400, 'A message is required.', { code: 'VALIDATION_ERROR' });
+    const file = req.file; // present only for multipart requests with a file
+    // A message OR an attachment is required (attachment-only turns are allowed).
+    if (!message && !file) {
+      throw new ApiError(400, 'A message or attachment is required.', { code: 'VALIDATION_ERROR' });
     }
     if (message.length > 4000) {
       throw new ApiError(413, 'Message is too long (max 4000 characters).', { code: 'MESSAGE_TOO_LONG' });
     }
+
+    // Optional attachment (read-only, used only for this turn — never stored).
+    let attachment = null;
+    if (file && file.buffer && file.buffer.length) {
+      if (!CHAT_ATTACH_MIME.has(file.mimetype)) {
+        throw new ApiError(415, 'Unsupported attachment type. Allowed: images, PDF, DOCX, TXT.', { code: 'UNSUPPORTED_TYPE' });
+      }
+      attachment = { buffer: file.buffer, mimeType: file.mimetype, filename: file.originalname };
+    }
+
     // conversationId (optional) must be a positive integer if provided.
     let conversationId = null;
-    if (body.conversationId != null) {
+    if (body.conversationId != null && body.conversationId !== '') {
       const cid = Number(body.conversationId);
       if (!Number.isInteger(cid) || cid <= 0) {
         throw new ApiError(400, 'Invalid conversationId.', { code: 'VALIDATION_ERROR' });
@@ -75,7 +95,7 @@ router.post('/ai/chat', requireAuth, async (req, res, next) => {
       conversationId = cid;
     }
 
-    const result = await aiOrchestrator.ask({ user, message, conversationId });
+    const result = await aiOrchestrator.ask({ user, message, conversationId, attachment });
 
     res.status(200).json({
       success: true,

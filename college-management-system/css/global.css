@@ -666,3 +666,27 @@ table.data-table {
   .card-body { padding: var(--sp-4); }
   .modal-body { padding: var(--sp-4); }
 }
+
+/* =========================================================================
+   Askbook brand wordmark — "Ask" + "book" with complementary colors.
+   "Ask" is the neutral anchor; "book" carries the role accent so the brand
+   adapts to each theme (student green, faculty indigo, admin violet) while
+   staying prominent and professional. Used in sidebar, login, register, nav.
+   ========================================================================= */
+.brand-ask { font-weight: 800; color: var(--brand-900, #1e1b4b); letter-spacing: -0.01em; }
+.brand-book { font-weight: 800; color: var(--brand-600); letter-spacing: -0.01em; }
+
+/* Role accents for the "book" half (complementary to each theme). */
+.role-student .brand-book,
+.auth-student .brand-book { color: var(--success-600, #059669); }
+.role-faculty .brand-book,
+.auth-faculty .brand-book { color: var(--brand-600, #4f46e5); }
+.role-admin .brand-book,
+.auth-admin .brand-book { color: #7c3aed; }
+
+/* On dark auth-hero panels, lift both halves for contrast. */
+.auth-hero .brand-name .brand-ask { color: #ffffff; }
+.auth-hero .brand-name .brand-book { color: #a5b4fc; }
+.auth-hero.hero-student .brand-name .brand-book,
+.student .auth-hero .brand-name .brand-book { color: #6ee7b7; }
+.auth-hero.hero-admin .brand-name .brand-book { color: #c4b5fd; }

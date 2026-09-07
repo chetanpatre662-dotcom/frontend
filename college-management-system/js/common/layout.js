@@ -50,7 +50,7 @@ export function mountLayout(cfg) {
       <div class="sb-brand">
         <div class="sb-logo"><img src="${resolvePath(APP.COLLEGE_LOGO)}" alt="${esc(APP.COLLEGE_NAME)} logo" /></div>
         <div class="sb-brand-text">
-          <div class="sb-name">${esc(APP.COLLEGE_SHORT)}<span class="sb-subbrand">${esc(APP.COLLEGE_SUB)}</span></div>
+          <div class="sb-name"><span class="brand-ask">Ask</span><span class="brand-book">book</span><span class="sb-subbrand">${esc(APP.COLLEGE_SUB)}</span></div>
           <div class="sb-role">${esc(cfg.roleLabel)}</div>
         </div>
       </div>

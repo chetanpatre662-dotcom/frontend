@@ -9,10 +9,10 @@
   <link rel="stylesheet" href="../css/global.css" />
   <link rel="stylesheet" href="../css/auth.css" />
 </head>
-<body>
+<body class="auth-faculty">
   <div class="auth-wrap">
     <!-- Brand / hero panel -->
-    <section class="auth-hero">
+    <section class="auth-hero hero-faculty">
       <div class="brand-row">
         <div class="logo-badge" id="logoBadge"></div>
         <div>
@@ -77,8 +77,8 @@
     import { icon, googleIcon } from '../js/common/icons.js';
     import { initLoginPage } from '../js/common/loginPage.js';
 
-    document.getElementById('logoBadge').innerHTML = icon('logo');
-    document.getElementById('collegeName').textContent = APP.COLLEGE_SHORT;
+    document.getElementById('logoBadge').innerHTML = `<img src="../${APP.COLLEGE_LOGO.replace(/^\//, '')}" alt="${APP.COLLEGE_NAME} logo" />`;
+    document.getElementById('collegeName').innerHTML = `<span class="brand-ask">Ask</span><span class="brand-book">book</span>`;
     document.getElementById('rolePill').innerHTML = icon('user') + ' Faculty';
     document.getElementById('heroFoot').textContent = `${APP.COLLEGE_NAME} · ${APP.NAME}`;
     document.getElementById('googleBtn').innerHTML = googleIcon() + ' Continue with Google';
