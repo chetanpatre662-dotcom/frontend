@@ -162,7 +162,7 @@ async function handleMessage(ws, raw) {
 
 /** Attach a WebSocket server to an existing HTTP server at path /ws. */
 function attach(httpServer) {
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const wss = new WebSocketServer({ server: httpServer, path: '/askbook-ws' });
 
   wss.on('connection', (ws) => {
     ws.isAlive = true;
