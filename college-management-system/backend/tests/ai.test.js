@@ -296,3 +296,51 @@ test('timetable is an allowed RAG source_type in the ingest layer', () => {
   assert.equal(typeof multimodal.bufferToText, 'function');
   assert.equal(typeof multimodal.urlToText, 'function');
 });
+
+/* ===== Gemini tool-call replay preserves thoughtSignature (regression) ==== */
+
+test('_extractModelContent returns the model content VERBATIM (keeps thoughtSignature)', () => {
+  // Simulated Gemini generateContent response with a functionCall part that
+  // carries the opaque thoughtSignature the model requires echoed back.
+  const raw = {
+    candidates: [{
+      content: {
+        role: 'model',
+        parts: [{
+          functionCall: { name: 'get_my_question_papers', args: { subject: 'M1' } },
+          thoughtSignature: 'CikAbc123SIGNATURExyz==',
+        }],
+      },
+    }],
+  };
+  const content = geminiService._extractModelContent(raw);
+  assert.ok(content, 'model content must be returned');
+  assert.equal(content.role, 'model');
+  assert.equal(content.parts.length, 1);
+  // The signature MUST survive unchanged (this is the whole point of the fix).
+  assert.equal(content.parts[0].thoughtSignature, 'CikAbc123SIGNATURExyz==');
+  assert.equal(content.parts[0].functionCall.name, 'get_my_question_papers');
+  // It must be the SAME object reference Gemini returned (not a reconstruction),
+  // guaranteeing no field is silently dropped.
+  assert.equal(content, raw.candidates[0].content);
+});
+
+test('_extractFunctionCalls still returns the {name,args} projection for execution', () => {
+  const raw = {
+    candidates: [{
+      content: {
+        role: 'model',
+        parts: [{ functionCall: { name: 'get_my_classes', args: {} }, thoughtSignature: 'sig' }],
+      },
+    }],
+  };
+  const calls = geminiService._extractFunctionCalls(raw);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'get_my_classes');
+  assert.deepEqual(calls[0].args, {});
+});
+
+test('_extractModelContent returns null when there is no candidate content', () => {
+  assert.equal(geminiService._extractModelContent({}), null);
+  assert.equal(geminiService._extractModelContent({ candidates: [] }), null);
+});

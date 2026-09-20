@@ -316,11 +316,19 @@ async function ask({ user, message, conversationId, attachment } = {}) {
         break;
       }
 
-      // Record the model's tool-call turn in the running contents.
-      contents.push({
-        role: 'model',
-        parts: calls.map((c) => ({ functionCall: { name: c.name, args: c.args || {} } })),
-      });
+      // Record the model's tool-call turn in the running contents. Replay the
+      // ORIGINAL model content verbatim so each functionCall part keeps its
+      // opaque `thoughtSignature` — Gemini 2.x requires that exact value echoed
+      // back on the next turn, or it rejects the request with a 400. Only fall
+      // back to a reconstruction if the raw content is unexpectedly missing.
+      if (res.modelContent && Array.isArray(res.modelContent.parts)) {
+        contents.push(res.modelContent);
+      } else {
+        contents.push({
+          role: 'model',
+          parts: calls.map((c) => ({ functionCall: { name: c.name, args: c.args || {} } })),
+        });
+      }
 
       // Execute each requested tool with server-side authorization.
       const responseParts = [];

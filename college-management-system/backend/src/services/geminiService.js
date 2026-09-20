@@ -165,6 +165,18 @@ function extractFunctionCalls(data) {
 }
 
 /**
+ * Return the raw model `content` object from a response candidate, UNCHANGED.
+ * This preserves the exact `parts` Gemini emitted — including each functionCall
+ * part's opaque `thoughtSignature` — so the orchestrator can replay the model
+ * turn verbatim on the next request (Gemini 2.x requires the signature echoed
+ * back exactly, or it rejects the follow-up with a 400).
+ * @returns {object|null} e.g. { role: 'model', parts: [ { functionCall: {...} } ] }
+ */
+function extractModelContent(data) {
+  return data?.candidates?.[0]?.content || null;
+}
+
+/**
  * Plain text generation.
  * @param {object} p
  * @param {string} [p.system]  - system instruction text
@@ -205,6 +217,10 @@ async function generateWithTools({ system, contents, tools, toolConfig, generati
   return {
     text: extractText(data),
     functionCalls: extractFunctionCalls(data),
+    // The ORIGINAL model content/parts, unmodified. Callers MUST replay this
+    // verbatim (not a reconstruction from functionCalls) so the per-part
+    // `thoughtSignature` survives into the next turn's history.
+    modelContent: extractModelContent(data),
     raw: data,
   };
 }
@@ -269,4 +285,5 @@ module.exports = {
   // exported for unit testing of response parsing
   _extractText: extractText,
   _extractFunctionCalls: extractFunctionCalls,
+  _extractModelContent: extractModelContent,
 };
