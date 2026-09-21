@@ -39,9 +39,14 @@ const aiRepository = require('../src/repositories/aiRepository');
 const aiToolRegistry = require('../src/services/aiToolRegistry');
 const aiOrchestrator = require('../src/services/aiOrchestrator');
 const geminiService = require('../src/services/geminiService');
+const documentIngestService = require('../src/services/documentIngestService');
+const classContentService = require('../src/services/classContentService');
 
 function lastSql() { return calls[calls.length - 1].text; }
 function lastParams() { return calls[calls.length - 1].params; }
+
+/** Let fire-and-forget promise chains settle before asserting. */
+function flush() { return new Promise((r) => setImmediate(r)); }
 
 /* ============================ RAG permission scope ======================= */
 
@@ -343,4 +348,84 @@ test('_extractFunctionCalls still returns the {name,args} projection for executi
 test('_extractModelContent returns null when there is no candidate content', () => {
   assert.equal(geminiService._extractModelContent({}), null);
   assert.equal(geminiService._extractModelContent({ candidates: [] }), null);
+});
+
+/* ===== auto-index on upload: classContentService.triggerIngest ===========
+ * Proves the new non-blocking RAG trigger:
+ *   - fires ingestSource('question_paper', id) for supported file-backed types,
+ *   - never fires for unsupported types,
+ *   - a rejected ingestion does NOT throw out of triggerIngest (upload safe).
+ * We swap documentIngestService.ingestSource with a spy and restore it after.
+ * ======================================================================== */
+
+test('triggerIngest calls ingestSource("question_paper", id) for a question paper', async () => {
+  const original = documentIngestService.ingestSource;
+  const seen = [];
+  documentIngestService.ingestSource = async (type, id) => { seen.push([type, id]); return { status: 'indexed', chunks: 3 }; };
+  try {
+    classContentService.triggerIngest('question_paper', 4);
+    await flush();
+    assert.equal(seen.length, 1, 'ingestSource must be called exactly once');
+    assert.deepEqual(seen[0], ['question_paper', 4]);
+  } finally {
+    documentIngestService.ingestSource = original;
+  }
+});
+
+test('triggerIngest also supports note/assignment/project (all ingest-supported types)', async () => {
+  const original = documentIngestService.ingestSource;
+  const seen = [];
+  documentIngestService.ingestSource = async (type, id) => { seen.push([type, id]); return { status: 'indexed', chunks: 1 }; };
+  try {
+    classContentService.triggerIngest('note', 10);
+    classContentService.triggerIngest('assignment', 11);
+    classContentService.triggerIngest('project', 12);
+    await flush();
+    assert.deepEqual(seen.sort(), [['assignment', 11], ['note', 10], ['project', 12]]);
+  } finally {
+    documentIngestService.ingestSource = original;
+  }
+});
+
+test('triggerIngest does NOT fire for an unsupported entity type', async () => {
+  const original = documentIngestService.ingestSource;
+  let called = false;
+  documentIngestService.ingestSource = async () => { called = true; return { status: 'indexed' }; };
+  try {
+    classContentService.triggerIngest('timetable', 1); // not in SUPPORTED_SOURCE_TYPES
+    classContentService.triggerIngest('event', 2);
+    classContentService.triggerIngest('unknown', 3);
+    await flush();
+    assert.equal(called, false, 'unsupported types must never be ingested');
+  } finally {
+    documentIngestService.ingestSource = original;
+  }
+});
+
+test('triggerIngest ignores an invalid content id (no ingest call)', async () => {
+  const original = documentIngestService.ingestSource;
+  let called = false;
+  documentIngestService.ingestSource = async () => { called = true; return {}; };
+  try {
+    classContentService.triggerIngest('question_paper', 0);
+    classContentService.triggerIngest('question_paper', -1);
+    classContentService.triggerIngest('question_paper', null);
+    await flush();
+    assert.equal(called, false, 'invalid ids must be ignored');
+  } finally {
+    documentIngestService.ingestSource = original;
+  }
+});
+
+test('triggerIngest is non-blocking and SWALLOWS ingestion failure (upload stays safe)', async () => {
+  const original = documentIngestService.ingestSource;
+  documentIngestService.ingestSource = async () => { throw new Error('Gemini down'); };
+  try {
+    // Must not throw synchronously and must not produce an unhandled rejection.
+    assert.doesNotThrow(() => classContentService.triggerIngest('question_paper', 4));
+    await flush(); // if the rejection were unswallowed, this turn would surface it
+    assert.ok(true, 'ingestion failure did not propagate out of triggerIngest');
+  } finally {
+    documentIngestService.ingestSource = original;
+  }
 });

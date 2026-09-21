@@ -21,6 +21,7 @@ const classService = require('./classService');
 const classRepository = require('../repositories/classRepository');
 const studentRepository = require('../repositories/studentRepository');
 const fileService = require('./fileService');
+const documentIngestService = require('./documentIngestService');
 const { query } = require('../config/database');
 const { broadcastToClass } = require('../realtime/realtimeBus');
 const ApiError = require('../utils/ApiError');
@@ -32,6 +33,44 @@ const CONTENT_TABLE = {
   assignment: 'assignments',
   project: 'projects',
 };
+
+/**
+ * Fire-and-forget RAG indexing for a just-saved, file-backed content item so
+ * the AI Assistant can read the PDF/doc content (not just its title). Reuses
+ * the EXISTING documentIngestService pipeline (download -> extract -> embed ->
+ * upsert into ai_document_chunks, idempotent per source). NON-BLOCKING by
+ * design: the upload response never waits for embeddings, and any
+ * Gemini/storage failure here can NEVER fail the upload. Only entity types the
+ * ingest pipeline actually supports are indexed.
+ *
+ * @param {string} entityType  note | question_paper | assignment | project
+ * @param {number} contentId   the created/updated content row id
+ */
+function triggerIngest(entityType, contentId) {
+  if (!documentIngestService.SUPPORTED_SOURCE_TYPES.includes(entityType)) return;
+  const id = Number(contentId);
+  if (!Number.isInteger(id) || id <= 0) return;
+
+  // Detach from the request lifecycle. Never rethrow.
+  Promise.resolve()
+    .then(() => {
+      console.info('[ingest] start', JSON.stringify({ sourceType: entityType, sourceId: id }));
+      return documentIngestService.ingestSource(entityType, id);
+    })
+    .then((result) => {
+      const r = result || {};
+      if (r.status === 'indexed') {
+        console.info('[ingest] done', JSON.stringify({ sourceType: entityType, sourceId: id, status: r.status, chunks: r.chunks || 0 }));
+      } else {
+        // 'skipped'/'failed' are expected, non-fatal outcomes (no key, no file,
+        // image-only PDF, storage off). Log the reason for observability only.
+        console.warn('[ingest] not-indexed', JSON.stringify({ sourceType: entityType, sourceId: id, status: r.status || 'unknown', reason: r.reason || null }));
+      }
+    })
+    .catch((err) => {
+      console.error('[ingest] error', JSON.stringify({ sourceType: entityType, sourceId: id, message: (err && err.message) || String(err) }));
+    });
+}
 
 // Map entityType -> realtime event prefix.
 const EVENT_PREFIX = {
@@ -129,6 +168,10 @@ async function create(user, classId, entityType, input = {}, uploadedFile = null
   broadcastToClass(Number(classId), `${EVENT_PREFIX[entityType]}.created`, content);
   // Notify students in this class's academic group (best-effort, non-blocking).
   notifyClassStudents(Number(classId), entityType, title).catch(() => {});
+  // Index the attached file's text into the RAG store so the AI can read its
+  // contents. Only runs when a file was actually attached; fully non-blocking
+  // (upload has already succeeded above regardless of indexing outcome).
+  if (fileRef) triggerIngest(entityType, row.id);
   return content;
 }
 
@@ -176,4 +219,4 @@ async function remove(user, classId, entityType, id) {
   return { id: Number(id) };
 }
 
-module.exports = { list, create, update, remove, toContent };
+module.exports = { list, create, update, remove, toContent, triggerIngest };
