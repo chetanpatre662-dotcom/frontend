@@ -55,16 +55,19 @@ function triggerIngest(entityType, contentId) {
   Promise.resolve()
     .then(() => {
       console.info('[ingest] start', JSON.stringify({ sourceType: entityType, sourceId: id }));
-      return documentIngestService.ingestSource(entityType, id);
+      // Text pipeline first; falls back to Gemini Vision ONLY for scanned/
+      // image-only PDFs (no extractable text). Reuses the existing pipeline.
+      return documentIngestService.ingestSourceWithFallback(entityType, id);
     })
     .then((result) => {
       const r = result || {};
       if (r.status === 'indexed') {
-        console.info('[ingest] done', JSON.stringify({ sourceType: entityType, sourceId: id, status: r.status, chunks: r.chunks || 0 }));
+        console.info('[ingest] done', JSON.stringify({ sourceType: entityType, sourceId: id, status: r.status, chunks: r.chunks || 0, via: r.via || 'text' }));
       } else {
         // 'skipped'/'failed' are expected, non-fatal outcomes (no key, no file,
-        // image-only PDF, storage off). Log the reason for observability only.
-        console.warn('[ingest] not-indexed', JSON.stringify({ sourceType: entityType, sourceId: id, status: r.status || 'unknown', reason: r.reason || null }));
+        // image-only PDF that vision also couldn't read, storage off). Log the
+        // reason for observability only.
+        console.warn('[ingest] not-indexed', JSON.stringify({ sourceType: entityType, sourceId: id, status: r.status || 'unknown', reason: r.reason || null, via: r.via || 'text' }));
       }
     })
     .catch((err) => {

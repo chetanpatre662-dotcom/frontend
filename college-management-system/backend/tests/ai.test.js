@@ -41,6 +41,7 @@ const aiOrchestrator = require('../src/services/aiOrchestrator');
 const geminiService = require('../src/services/geminiService');
 const documentIngestService = require('../src/services/documentIngestService');
 const classContentService = require('../src/services/classContentService');
+const multimodalIngestService = require('../src/services/multimodalIngestService');
 
 function lastSql() { return calls[calls.length - 1].text; }
 function lastParams() { return calls[calls.length - 1].params; }
@@ -355,27 +356,28 @@ test('_extractModelContent returns null when there is no candidate content', () 
  *   - fires ingestSource('question_paper', id) for supported file-backed types,
  *   - never fires for unsupported types,
  *   - a rejected ingestion does NOT throw out of triggerIngest (upload safe).
- * We swap documentIngestService.ingestSource with a spy and restore it after.
+ * We swap documentIngestService.ingestSourceWithFallback with a spy and restore
+ * it after (triggerIngest calls the fallback-aware entry point).
  * ======================================================================== */
 
-test('triggerIngest calls ingestSource("question_paper", id) for a question paper', async () => {
-  const original = documentIngestService.ingestSource;
+test('triggerIngest calls ingestSourceWithFallback("question_paper", id) for a question paper', async () => {
+  const original = documentIngestService.ingestSourceWithFallback;
   const seen = [];
-  documentIngestService.ingestSource = async (type, id) => { seen.push([type, id]); return { status: 'indexed', chunks: 3 }; };
+  documentIngestService.ingestSourceWithFallback = async (type, id) => { seen.push([type, id]); return { status: 'indexed', chunks: 3 }; };
   try {
     classContentService.triggerIngest('question_paper', 4);
     await flush();
-    assert.equal(seen.length, 1, 'ingestSource must be called exactly once');
+    assert.equal(seen.length, 1, 'ingestSourceWithFallback must be called exactly once');
     assert.deepEqual(seen[0], ['question_paper', 4]);
   } finally {
-    documentIngestService.ingestSource = original;
+    documentIngestService.ingestSourceWithFallback = original;
   }
 });
 
 test('triggerIngest also supports note/assignment/project (all ingest-supported types)', async () => {
-  const original = documentIngestService.ingestSource;
+  const original = documentIngestService.ingestSourceWithFallback;
   const seen = [];
-  documentIngestService.ingestSource = async (type, id) => { seen.push([type, id]); return { status: 'indexed', chunks: 1 }; };
+  documentIngestService.ingestSourceWithFallback = async (type, id) => { seen.push([type, id]); return { status: 'indexed', chunks: 1 }; };
   try {
     classContentService.triggerIngest('note', 10);
     classContentService.triggerIngest('assignment', 11);
@@ -383,14 +385,14 @@ test('triggerIngest also supports note/assignment/project (all ingest-supported 
     await flush();
     assert.deepEqual(seen.sort(), [['assignment', 11], ['note', 10], ['project', 12]]);
   } finally {
-    documentIngestService.ingestSource = original;
+    documentIngestService.ingestSourceWithFallback = original;
   }
 });
 
 test('triggerIngest does NOT fire for an unsupported entity type', async () => {
-  const original = documentIngestService.ingestSource;
+  const original = documentIngestService.ingestSourceWithFallback;
   let called = false;
-  documentIngestService.ingestSource = async () => { called = true; return { status: 'indexed' }; };
+  documentIngestService.ingestSourceWithFallback = async () => { called = true; return { status: 'indexed' }; };
   try {
     classContentService.triggerIngest('timetable', 1); // not in SUPPORTED_SOURCE_TYPES
     classContentService.triggerIngest('event', 2);
@@ -398,14 +400,14 @@ test('triggerIngest does NOT fire for an unsupported entity type', async () => {
     await flush();
     assert.equal(called, false, 'unsupported types must never be ingested');
   } finally {
-    documentIngestService.ingestSource = original;
+    documentIngestService.ingestSourceWithFallback = original;
   }
 });
 
 test('triggerIngest ignores an invalid content id (no ingest call)', async () => {
-  const original = documentIngestService.ingestSource;
+  const original = documentIngestService.ingestSourceWithFallback;
   let called = false;
-  documentIngestService.ingestSource = async () => { called = true; return {}; };
+  documentIngestService.ingestSourceWithFallback = async () => { called = true; return {}; };
   try {
     classContentService.triggerIngest('question_paper', 0);
     classContentService.triggerIngest('question_paper', -1);
@@ -413,19 +415,133 @@ test('triggerIngest ignores an invalid content id (no ingest call)', async () =>
     await flush();
     assert.equal(called, false, 'invalid ids must be ignored');
   } finally {
-    documentIngestService.ingestSource = original;
+    documentIngestService.ingestSourceWithFallback = original;
   }
 });
 
 test('triggerIngest is non-blocking and SWALLOWS ingestion failure (upload stays safe)', async () => {
-  const original = documentIngestService.ingestSource;
-  documentIngestService.ingestSource = async () => { throw new Error('Gemini down'); };
+  const original = documentIngestService.ingestSourceWithFallback;
+  documentIngestService.ingestSourceWithFallback = async () => { throw new Error('Gemini down'); };
   try {
     // Must not throw synchronously and must not produce an unhandled rejection.
     assert.doesNotThrow(() => classContentService.triggerIngest('question_paper', 4));
     await flush(); // if the rejection were unswallowed, this turn would surface it
     assert.ok(true, 'ingestion failure did not propagate out of triggerIngest');
   } finally {
-    documentIngestService.ingestSource = original;
+    documentIngestService.ingestSourceWithFallback = original;
+  }
+});
+
+/* ===== scanned/image-only PDF fallback: ingestSourceWithFallback =========
+ * Proves the shared helper:
+ *   - returns an indexed text result unchanged (no vision call),
+ *   - falls back to multimodalIngestService.ingestFileSource EXACTLY ONCE when
+ *     the text pipeline skips with "No extractable text",
+ *   - does NOT fall back for any other skip reason,
+ *   - preserves all source metadata (scope, title, fileId, uploadedBy),
+ *   - never retries / recurses.
+ * We stub documentIngestService.ingestSource, aiRepository.findIngestSource and
+ * multimodalIngestService.ingestFileSource, restoring each afterwards.
+ * ======================================================================== */
+
+test('ingestSourceWithFallback returns an indexed text result WITHOUT a vision fallback', async () => {
+  const origIngest = documentIngestService.ingestSource;
+  let visionCalls = 0;
+  const origVision = multimodalIngestService.ingestFileSource;
+  documentIngestService.ingestSource = async () => ({ sourceType: 'question_paper', sourceId: 4, status: 'indexed', chunks: 5 });
+  multimodalIngestService.ingestFileSource = async () => { visionCalls += 1; return { status: 'indexed', chunks: 9 }; };
+  try {
+    const res = await documentIngestService.ingestSourceWithFallback('question_paper', 4);
+    assert.equal(res.status, 'indexed');
+    assert.equal(res.chunks, 5);
+    assert.equal(visionCalls, 0, 'indexed text must not trigger the vision path');
+  } finally {
+    documentIngestService.ingestSource = origIngest;
+    multimodalIngestService.ingestFileSource = origVision;
+  }
+});
+
+test('ingestSourceWithFallback falls back to vision ONCE for "No extractable text"', async () => {
+  const origIngest = documentIngestService.ingestSource;
+  const origFind = aiRepository.findIngestSource;
+  const origVision = multimodalIngestService.ingestFileSource;
+  let visionCalls = 0;
+  let passed = null;
+  documentIngestService.ingestSource = async () => ({
+    sourceType: 'question_paper', sourceId: 4, status: 'skipped',
+    reason: 'No extractable text (empty or image-only document).',
+  });
+  aiRepository.findIngestSource = async () => ({
+    id: 4, class_id: 7, title: 'BIG DATA QUESTION PAPER', description: null,
+    program: 'BTech', branch: 'CSE', semester: 5, file_id: 1,
+    storage_path: 'classes/7/qp/4.pdf', mime_type: 'application/pdf', uploaded_by: 12,
+  });
+  multimodalIngestService.ingestFileSource = async (arg) => { visionCalls += 1; passed = arg; return { status: 'indexed', chunks: 8 }; };
+  try {
+    const res = await documentIngestService.ingestSourceWithFallback('question_paper', 4);
+    assert.equal(visionCalls, 1, 'vision fallback must run exactly once');
+    assert.equal(res.status, 'indexed');
+    assert.equal(res.chunks, 8);
+    assert.equal(res.via, 'multimodal', 'result must be tagged as coming from vision');
+    // Metadata preservation.
+    assert.equal(passed.sourceType, 'question_paper');
+    assert.equal(passed.sourceId, 4);
+    assert.equal(passed.storagePath, 'classes/7/qp/4.pdf');
+    assert.equal(passed.mimeType, 'application/pdf');
+    assert.equal(passed.title, 'BIG DATA QUESTION PAPER');
+    assert.equal(passed.fileId, 1);
+    assert.equal(passed.uploadedBy, 12);
+    assert.deepEqual(passed.scope, {
+      accessScope: 'class', classId: 7, program: 'BTech', branch: 'CSE', semester: 5,
+    });
+  } finally {
+    documentIngestService.ingestSource = origIngest;
+    aiRepository.findIngestSource = origFind;
+    multimodalIngestService.ingestFileSource = origVision;
+  }
+});
+
+test('ingestSourceWithFallback does NOT fall back for an unrelated skip reason', async () => {
+  const origIngest = documentIngestService.ingestSource;
+  const origVision = multimodalIngestService.ingestFileSource;
+  let visionCalls = 0;
+  documentIngestService.ingestSource = async () => ({
+    sourceType: 'note', sourceId: 2, status: 'skipped',
+    reason: 'No stored file attached (nothing to extract).',
+  });
+  multimodalIngestService.ingestFileSource = async () => { visionCalls += 1; return { status: 'indexed', chunks: 1 }; };
+  try {
+    const res = await documentIngestService.ingestSourceWithFallback('note', 2);
+    assert.equal(visionCalls, 0, 'non-text skip reasons must not trigger vision');
+    assert.equal(res.status, 'skipped');
+    assert.equal(res.reason, 'No stored file attached (nothing to extract).');
+  } finally {
+    documentIngestService.ingestSource = origIngest;
+    multimodalIngestService.ingestFileSource = origVision;
+  }
+});
+
+test('ingestSourceWithFallback surfaces a vision fallback FAILURE without throwing', async () => {
+  const origIngest = documentIngestService.ingestSource;
+  const origFind = aiRepository.findIngestSource;
+  const origVision = multimodalIngestService.ingestFileSource;
+  documentIngestService.ingestSource = async () => ({
+    sourceType: 'question_paper', sourceId: 4, status: 'skipped',
+    reason: 'No extractable text (empty or image-only document).',
+  });
+  aiRepository.findIngestSource = async () => ({
+    id: 4, class_id: 7, title: 'BIG DATA QUESTION PAPER', program: 'BTech', branch: 'CSE',
+    semester: 5, file_id: 1, storage_path: 'classes/7/qp/4.pdf', mime_type: 'application/pdf', uploaded_by: 12,
+  });
+  multimodalIngestService.ingestFileSource = async () => ({ status: 'failed', reason: 'Download failed: boom' });
+  try {
+    const res = await documentIngestService.ingestSourceWithFallback('question_paper', 4);
+    assert.equal(res.status, 'failed', 'fallback failure is surfaced as the effective status');
+    assert.equal(res.via, 'multimodal');
+    assert.match(res.reason, /Download failed/);
+  } finally {
+    documentIngestService.ingestSource = origIngest;
+    aiRepository.findIngestSource = origFind;
+    multimodalIngestService.ingestFileSource = origVision;
   }
 });

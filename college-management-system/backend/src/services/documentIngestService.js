@@ -269,4 +269,73 @@ async function ingestDocument(docId) {
   return { ...base, ...result };
 }
 
-module.exports = { ingestSource, ingestAll, ingestDocument, embedAndStore, SUPPORTED_SOURCE_TYPES };
+/**
+ * Ingest a content source, falling back to multimodal (Gemini Vision) ONLY when
+ * the normal text pipeline reports the file has no extractable text (i.e. a
+ * scanned / image-only PDF). This is the single entry point callers should use
+ * so both new uploads and existing-document backfills behave identically.
+ *
+ * Flow:
+ *   1. ingestSource(sourceType, sourceId)  (existing text pipeline, unchanged)
+ *   2. if status==='indexed'        -> return it as-is.
+ *   3. if status==='skipped' AND the reason is the "No extractable text"
+ *      (image-only) case            -> ONE multimodal fallback attempt via
+ *      multimodalIngestService.ingestFileSource(...) using the SAME source
+ *      metadata (reused from aiRepository.findIngestSource — no duplicate SQL).
+ *   4. any other status/reason      -> return unchanged (no fallback).
+ *
+ * Never retries and never recurses. Non-throwing for expected failures — returns
+ * a structured result. Only entity types the text pipeline supports are handled.
+ *
+ * @param {string} sourceType  note | question_paper | assignment | project
+ * @param {number} sourceId
+ * @returns {Promise<object>} { sourceType, sourceId, status, chunks?, reason?, via? }
+ */
+async function ingestSourceWithFallback(sourceType, sourceId) {
+  // Call through the module export so the primary text pipeline is a single,
+  // interceptable seam (keeps the helper a thin composition over ingestSource).
+  const primary = await module.exports.ingestSource(sourceType, sourceId);
+
+  // Success or any non-"no-text" outcome: return the text-pipeline result as-is.
+  if (!primary || primary.status !== 'skipped') return primary;
+  const reason = String(primary.reason || '');
+  const isNoText = /no extractable text|image-only/i.test(reason);
+  if (!isNoText) return primary;
+
+  // Scanned/image-only PDF: attempt the multimodal (vision) path exactly once.
+  // Reuse the SAME lookup the text pipeline used (no duplicated SQL here).
+  let src;
+  try {
+    src = await aiRepository.findIngestSource(sourceType, Number(sourceId));
+  } catch (err) {
+    return { ...primary, via: 'text', fallback: { status: 'failed', reason: `Fallback lookup failed: ${err.message}` } };
+  }
+  if (!src || !src.file_id || !src.storage_path) {
+    // Nothing to read via vision either — keep the honest text-path result.
+    return primary;
+  }
+
+  const multimodalIngestService = require('./multimodalIngestService');
+  const fb = await multimodalIngestService.ingestFileSource({
+    sourceType,
+    sourceId: Number(sourceId),
+    storagePath: src.storage_path,
+    mimeType: src.mime_type,
+    scope: {
+      accessScope: 'class',
+      classId: src.class_id,
+      program: src.program,
+      branch: src.branch,
+      semester: src.semester,
+    },
+    title: src.title || null,
+    fileId: src.file_id,
+    uploadedBy: src.uploaded_by || null,
+  });
+
+  // Surface the fallback outcome as the effective result, tagged so callers/logs
+  // can see it came from vision. On fallback failure/skip, the reason is honest.
+  return { sourceType, sourceId: Number(sourceId), ...fb, via: 'multimodal', title: src.title || null };
+}
+
+module.exports = { ingestSource, ingestSourceWithFallback, ingestAll, ingestDocument, embedAndStore, SUPPORTED_SOURCE_TYPES };
