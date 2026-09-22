@@ -73,7 +73,15 @@ async function bufferToText(buffer, mimeType) {
         { inlineData: { mimeType: 'application/pdf', data: buffer.toString('base64') } },
       ],
     }];
-    const res = await geminiService.generate({ system: VISION_SYSTEM, contents });
+    // Bound the transcription length so a large scanned PDF cannot produce an
+    // unbounded generation that blows past the request timeout. 8192 output
+    // tokens (~6k words) is ample for indexing a multi-page scanned document
+    // while keeping generation time predictable.
+    const res = await geminiService.generate({
+      system: VISION_SYSTEM,
+      contents,
+      generationConfig: { maxOutputTokens: 8192 },
+    });
     return { text: String(res.text || '').trim(), method: 'pdf-vision' };
   }
 
